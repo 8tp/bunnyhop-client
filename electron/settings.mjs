@@ -3,12 +3,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION = 2;
 
 export const PROFILE_NAMES = Object.freeze(['competitive', 'balanced', 'compatibility', 'custom']);
 export const WINDOW_MODES = Object.freeze(['fullscreen', 'kiosk', 'windowed']);
 export const GPU_BACKENDS = Object.freeze(['auto', 'd3d11', 'vulkan', 'opengl']);
-export const PRIORITIES = Object.freeze(['normal', 'high']);
+export const PRIORITIES = Object.freeze(['normal', 'above-normal']);
 export const BUNNYHOP_DISCORD_APPLICATION_ID = '1556467060916224040';
 
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   profile: 'balanced',
   windowMode: 'fullscreen',
   uncap: false,
-  gpuTweaks: false,
+  preferDiscreteGpu: true,
   gpuBackend: 'auto',
   pinDeviceScale: false,
   processPriority: 'normal',
@@ -33,22 +33,24 @@ export const DEFAULT_SETTINGS = Object.freeze({
   privacyMode: false,
 });
 
+/* No profile uncaps the browser (policy.mjs buildFlags): frames past the
+   refresh rate come from the game's own Exceed monitor FPS setting. */
 export const PRESETS = Object.freeze({
   competitive: Object.freeze({
     profile: 'competitive',
     windowMode: 'fullscreen',
-    uncap: true,
-    gpuTweaks: true,
+    uncap: false,
+    preferDiscreteGpu: true,
     gpuBackend: 'auto',
     pinDeviceScale: false,
-    processPriority: 'high',
+    processPriority: 'above-normal',
     preferHighestRefresh: true,
   }),
   balanced: Object.freeze({
     profile: 'balanced',
     windowMode: 'fullscreen',
     uncap: false,
-    gpuTweaks: false,
+    preferDiscreteGpu: true,
     gpuBackend: 'auto',
     pinDeviceScale: false,
     processPriority: 'normal',
@@ -58,13 +60,27 @@ export const PRESETS = Object.freeze({
     profile: 'compatibility',
     windowMode: 'windowed',
     uncap: false,
-    gpuTweaks: false,
+    preferDiscreteGpu: false,
     gpuBackend: 'auto',
     pinDeviceScale: false,
     processPriority: 'normal',
     preferHighestRefresh: false,
   }),
 });
+
+/* Version 1 Competitive uncapped the whole browser, raised only the main
+   process to High, and set extra GPU flags; on a fast machine it ran worse
+   than Balanced. A saved version 1 Competitive profile moves to the current
+   one; High priority becomes Above normal; the old GPU flag set becomes the
+   discrete GPU preference. */
+function migrate(input) {
+  if (!input || typeof input !== 'object' || Number(input.version) >= SETTINGS_VERSION) return input;
+  const next = { ...input };
+  if (next.processPriority === 'high') next.processPriority = 'above-normal';
+  if (next.gpuTweaks === true) next.preferDiscreteGpu = true;
+  delete next.gpuTweaks;
+  return next.profile === 'competitive' ? { ...next, ...PRESETS.competitive } : next;
+}
 
 function oneOf(value, choices, fallback) {
   return choices.includes(value) ? value : fallback;
@@ -80,15 +96,16 @@ function display(value) {
 }
 
 /** Ignore unknown keys and invalid values. Settings are data, never flags. */
-export function sanitizeSettings(input = {}) {
+export function sanitizeSettings(raw = {}) {
   const base = DEFAULT_SETTINGS;
+  const input = migrate(raw) ?? {};
   return {
     version: SETTINGS_VERSION,
     windowBounds: sanitizeWindowBounds(input.windowBounds),
     profile: oneOf(input.profile, PROFILE_NAMES, base.profile),
     windowMode: oneOf(input.windowMode, WINDOW_MODES, base.windowMode),
     uncap: bool(input.uncap, base.uncap),
-    gpuTweaks: bool(input.gpuTweaks, base.gpuTweaks),
+    preferDiscreteGpu: bool(input.preferDiscreteGpu, base.preferDiscreteGpu),
     gpuBackend: oneOf(input.gpuBackend, GPU_BACKENDS, base.gpuBackend),
     pinDeviceScale: bool(input.pinDeviceScale, base.pinDeviceScale),
     processPriority: oneOf(input.processPriority, PRIORITIES, base.processPriority),
@@ -148,7 +165,7 @@ export function resolveLaunchSettings(saved, overrides = {}) {
     ...settings,
     windowMode,
     uncap: overrides.uncap ?? settings.uncap,
-    gpuTweaks: overrides.gpuTweaks ?? settings.gpuTweaks,
+    preferDiscreteGpu: overrides.preferDiscreteGpu ?? settings.preferDiscreteGpu,
     gpuBackend: overrides.gpuBackend ?? settings.gpuBackend,
     pinDeviceScale: overrides.pinDeviceScale ?? settings.pinDeviceScale,
     processPriority: overrides.processPriority ?? settings.processPriority,

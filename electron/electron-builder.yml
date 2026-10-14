@@ -4,11 +4,16 @@ protocols:
   - name: Bunnyhop links
     schemes: [bunnyhop]
 copyright: Copyright © 2026 Aeperion
+# Predictable names for the download page and scripts/release.mjs.
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   output: dist/electron
   buildResources: assets
 files:
   - electron/main.mjs
+  - electron/process-priority.mjs
+  - electron/smoke.mjs
+  - electron/update-check.mjs
   - electron/content-cache.mjs
   - electron/coalesced-writer.mjs
   - electron/branding.mjs
@@ -26,28 +31,30 @@ files:
 asar: true
 afterPack: electron/after-pack.cjs
 
+# Releases are not OS-signed (docs/releases.md). after-pack.cjs gives the
+# macOS bundle an ad hoc seal, which Apple Silicon requires to launch.
 mac:
   icon: assets/icon.icns
   category: public.app-category.games
-  hardenedRuntime: true
-  gatekeeperAssess: false
-  entitlements: electron/entitlements.mac.plist
-  entitlementsInherit: electron/entitlements.mac.plist
-  notarize: true
+  identity: null
+  notarize: false
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch: [arm64, x64]
 
 win:
   icon: assets/icon.ico
   target:
-    - nsis
-    - portable
-  verifyUpdateCodeSignature: true
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
 
+# Per-user one-click install: no administrator prompt, no folder page.
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  perMachine: false
+  artifactName: ${productName}-${version}-${os}-${arch}-setup.${ext}
   deleteAppDataOnUninstall: false
 
 linux:
@@ -57,7 +64,9 @@ linux:
   executableArgs: []
   syncDesktopName: true
   target:
-    - AppImage
-    - deb
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
 
 publish: []

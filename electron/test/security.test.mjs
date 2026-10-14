@@ -27,8 +27,8 @@ test('summaries are bounded data and do not grant score authority',()=>{
 test('settings assets have an exact allowlist and balanced defaults avoid rendering flags',()=>{
  assert.equal(settingsAssetName('bunnyhop-settings://app/../../secret'),null);
  assert.equal(settingsAssetName('bunnyhop-settings://app/index.html'),'index.html');
- assert.deepEqual(buildFlags(sanitizeSettings()),[]);
+ assert.deepEqual(buildFlags(sanitizeSettings()),['--force_high_performance_gpu']);
  assert.equal(sanitizeSettings().discordApplicationId,'1556467060916224040');
- assert.ok(buildFlags(applyPreset({},'competitive')).includes('--disable-frame-rate-limit'));
+ for(const profile of ['competitive','balanced','compatibility']) assert.equal(buildFlags(applyPreset({},profile)).includes('--disable-frame-rate-limit'),false);
  assert.equal('sidecarMode' in sanitizeSettings({sidecarMode:'complete'}),false);
 });
