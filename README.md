@@ -25,7 +25,19 @@ A dedicated desktop home for [bunnyhop.lol](https://bunnyhop.lol). Keep your gam
 | --- | --- | --- |
 | Display profiles, fullscreen, and native settings | Local run history, screenshots, and optional PB captures | Opt-in Discord Rich Presence and Bunnyhop deep links |
 
-> **Development preview** · No published releases yet. macOS ARM64 has been built and smoke-tested; Windows and Linux still need native validation. Game-aware features require the matching website hooks. GitHub Actions is disabled; builds and checks run locally.
+> **Preview** · Releases are free, unsigned builds published on [GitHub Releases](https://github.com/8tp/bunnyhop-client/releases). The game itself always plays in any browser at [bunnyhop.lol](https://bunnyhop.lol); the client adds a dedicated window, Discord presence, and a local run vault. GitHub Actions is disabled; builds and checks run locally.
+
+## Install
+
+Download the file for your system from the [latest release](https://github.com/8tp/bunnyhop-client/releases/latest). The builds are not signed with a paid certificate, so Windows and macOS ask once before the first launch of each version. `SHA256SUMS` in the release lists every file's checksum.
+
+**Windows 10/11** · `Bunnyhop-<version>-win-x64-setup.exe` installs for your account only, with no administrator prompt. If “Windows protected your PC” appears, choose **More info**, then **Run anyway**. `…-win-x64.zip` is a portable copy: extract it and run `Bunnyhop.exe`. Windows 11 with Smart App Control turned on blocks unsigned apps entirely; play in the browser instead.
+
+**macOS 13 or newer** · Open `Bunnyhop-<version>-mac-arm64.dmg` (Apple silicon) or `…-mac-x64.dmg` (Intel) and drag Bunnyhop to Applications. The first launch is refused. Open **System Settings → Privacy & Security**, scroll to the Bunnyhop message, choose **Open Anyway**, and confirm. After an update, macOS may ask once for “Bunnyhop Safe Storage” access; choose **Always Allow**.
+
+**Linux** · `chmod +x Bunnyhop-<version>-linux-x86_64.AppImage` and run it, or install the `.deb` with `sudo apt install ./Bunnyhop-<version>-linux-amd64.deb`.
+
+The client tells you when a new version is out (F10 → Client, plus one notification outside runs); download it the same way. It never downloads or installs anything by itself.
 
 ## Run from source
 
@@ -39,13 +51,14 @@ npm start
 
 Electron needs a graphical desktop. Linux additionally needs the normal Electron runtime libraries. The client loads the live website; native integration requires the corresponding web hooks to be deployed. Without those hooks, the game still runs, but presence and completed-run archives will not receive game state.
 
-On macOS, repeated unsigned developer builds may trigger a “Bunnyhop Safe Storage” login-keychain prompt because their signatures change. Signed releases require a consistent Developer ID identity. Automated smoke launchers use disposable profiles and a mock keychain; they never need your login password. Normal app launches retain secure credential storage.
+On macOS, every unsigned build has a new ad hoc signature, so a rebuilt or updated app may trigger a “Bunnyhop Safe Storage” login-keychain prompt. Automated smoke launchers use disposable profiles and a mock keychain; they never need your login password. Normal app launches retain secure credential storage.
 
 ## Features
 
 - F10 opens client settings; `npm start -- --settings` opens them at launch.
 - F9 saves a screenshot through a file dialog. F11 toggles fullscreen outside kiosk mode.
-- Competitive, balanced, compatibility, and custom settings control fullscreen/kiosk/windowed mode, display selection, frame limiting, GPU options, device scaling, and Windows process priority. Balanced is the default; frame uncapping and GPU tweaks are optional.
+- Competitive, balanced, compatibility, and custom profiles control fullscreen/kiosk/windowed mode, display selection, the discrete-GPU preference, GPU backend, device scaling, and Windows process priority. Balanced is the default. Competitive raises the browser, GPU, and game processes to Above normal on Windows.
+- No profile uncaps the browser. Frames past the refresh rate come from the game's own Graphics settings (Exceed monitor FPS and the low-latency canvas), which pace them on the GPU. A browser-wide uncap (`--disable-frame-rate-limit --disable-gpu-vsync`) remains as an experimental switch; it also uncaps the page and compositor with nothing holding frames back, and ran worse than Balanced on a fast Windows machine. Settings saved by an older Competitive profile move to the current one.
 - Settings include local diagnostics and JSON support-report export. Diagnostics describe the detected environment, not measured input latency.
 - The local run vault stores bounded completed-run summaries. Optional PB screenshots wait for a matching result-card signal from the game and are cancelled when the result is left.
 - Opt-in Discord Rich Presence connects to Discord desktop over local IPC, retries when Discord starts late or restarts, and uses Bunnyhop application ID `1556467060916224040`. Map display has its own switch. Public map thumbnails appear with a small Bunnyhop logo badge; menus, missing or unsupported thumbnails, and hidden maps use the logo alone. Privacy mode disables presence; no room identifier, join secret, or arbitrary renderer URL is sent. Artwork is limited to the public Bunnyhop logo and validated first-party thumbnail paths. The button points to `https://bunnyhop.lol`.
@@ -54,7 +67,7 @@ On macOS, repeated unsigned developer builds may trigger a “Bunnyhop Safe Stor
 
 Client settings live in `Bunnyhop/client-settings.json` under Application Support on macOS or AppData/Roaming on Windows, and in `~/.config/bunnyhop/client-settings.json` on Linux (respecting `XDG_CONFIG_HOME`). The sibling `vault` directory holds summaries, captures, support reports, and `status.json`, a small local activity file. F10 can open that directory. Vault data stays on this machine; game accounts and run submissions retain the website's normal network behavior.
 
-Rendering and display changes show a relaunch prompt. CLI options such as `--windowed`, `--fullscreen`, `--kiosk`, `--uncap`, `--no-uncap`, `--gpu-tweaks`, and `--no-gpu-tweaks` apply to that launch without being saved.
+Rendering and display changes show a relaunch prompt. CLI options such as `--windowed`, `--fullscreen`, `--kiosk`, `--uncap`, `--no-uncap`, `--discrete-gpu`, and `--no-discrete-gpu` apply to that launch without being saved.
 
 ## Permanent content cache
 
@@ -86,13 +99,7 @@ npm run electron:packaged-smoke
 npm run electron:dist         # Native installer/archive formats
 ```
 
-Build output is in `dist/electron`. Development builds are unsigned and do not check for updates. On macOS, an unsigned developer build can be made with:
-
-```sh
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run electron:dist -- --mac --arm64 -c.mac.identity=null -c.mac.notarize=false --publish never
-```
-
-Only a signed release build carrying the release stamp and an explicit publisher configuration checks for updates. Windows and macOS verify update signatures; Linux updates are manual. Release signing, notarization, metadata, and publication requirements are in [release setup](docs/releases.md). There are no active GitHub workflows or automatic publications.
+Build output is in `dist/electron`. Development builds do not check for new versions. Release builds (`npm run release:build`) carry a release stamp: they check a signed release note and never run the smoke harness. Electron Builder makes the macOS, Windows, and Linux packages from one Mac. The release process is in [releases](docs/releases.md); planned features are in the [roadmap](docs/roadmap.md). There are no GitHub workflows or automatic publications.
 
 ## Contribute or report an issue
 

@@ -18,10 +18,8 @@ import process from 'node:process';
 import { buildFlags } from './policy.mjs';
 
 const flags = buildFlags({
-  uncap: !process.argv.includes('--no-uncap'),
-  gpuTweaks: !process.argv.includes('--no-gpu-tweaks'),
-  strict: false,
-  windowed: true,
+  uncap: process.argv.includes('--uncap'),
+  preferDiscreteGpu: !process.argv.includes('--no-discrete-gpu'),
 });
 for (const raw of flags) {
   const m = /^--([^=]+)(?:=(.*))?$/.exec(raw);

@@ -2,16 +2,16 @@ import {
   app,
   BrowserWindow,
   Menu,
+  Notification,
   dialog,
   ipcMain,
+  net,
   protocol,
   screen,
   session,
   shell,
 } from 'electron';
-import updater from 'electron-updater';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -49,10 +49,24 @@ import {
   SETTINGS_ASSET_TYPES,
 } from './security.mjs';
 import { PersonalBestCapture, RunVault } from './run-vault.mjs';
+import { applyPriority } from './process-priority.mjs';
+import { checkForUpdate, isReleasePage } from './update-check.mjs';
+import { installSmokeFixture, runSmoke } from './smoke.mjs';
 
-const { autoUpdater } = updater;
+/* Only release builds (npm run release:build) carry bunnyhopReleaseBuild in
+   their packaged package.json. They check for new versions and never run
+   the smoke harness, whatever the environment says. */
+function isReleaseBuild() {
+  try {
+    return JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).bunnyhopReleaseBuild === true;
+  } catch {
+    return false;
+  }
+}
+const releaseBuild = isReleaseBuild();
+const smoke = !releaseBuild && process.env.BUNNYHOP_SMOKE ? process.env.BUNNYHOP_SMOKE : null;
 app.setName('Bunnyhop');
-app.setPath('userData', process.env.BUNNYHOP_SMOKE && process.env.BUNNYHOP_SETTINGS_FILE ? path.join(path.dirname(process.env.BUNNYHOP_SETTINGS_FILE), 'profile') : path.join(app.getPath('appData'), 'Bunnyhop'));
+app.setPath('userData', smoke && process.env.BUNNYHOP_SETTINGS_FILE ? path.join(path.dirname(process.env.BUNNYHOP_SETTINGS_FILE), 'profile') : path.join(app.getPath('appData'), 'Bunnyhop'));
 const here = path.dirname(fileURLToPath(import.meta.url));
 const settingsRoot = path.join(here, 'settings');
 const settingsUrl = 'bunnyhop-settings://app/index.html';
@@ -67,9 +81,11 @@ const contentCache = new ContentCache(path.join(app.getPath('userData'), 'conten
    paint. The settings sheet is drawn on the same ground. */
 const GAME_BACKGROUND = '#101318';
 const RESTART_KEYS = Object.freeze([
-  'windowMode', 'uncap', 'gpuTweaks', 'gpuBackend', 'pinDeviceScale',
-  'processPriority', 'preferredDisplay', 'preferHighestRefresh', 'updates',
+  'windowMode', 'uncap', 'preferDiscreteGpu', 'gpuBackend', 'pinDeviceScale',
+  'processPriority', 'preferredDisplay', 'preferHighestRefresh',
 ]);
+const UPDATE_CHECK_DELAY = 20_000;
+const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'bunnyhop-settings',
@@ -85,7 +101,7 @@ function cliOverrides(argv = process.argv.slice(1)) {
   return {
     windowMode,
     uncap: has('--no-uncap') ? false : (has('--uncap') ? true : null),
-    gpuTweaks: has('--no-gpu-tweaks') ? false : (has('--gpu-tweaks') ? true : null),
+    preferDiscreteGpu: has('--no-discrete-gpu') ? false : (has('--discrete-gpu') ? true : null),
   };
 }
 
@@ -104,15 +120,7 @@ const launchSettings = currentSettings;
 let windowPreferenceMode = launchSettings.windowMode;
 const startupSettings = resolveLaunchSettings(currentSettings, cliOverrides());
 
-for (const raw of buildFlags({
-  uncap: startupSettings.uncap,
-  gpuTweaks: startupSettings.gpuTweaks,
-  gpuBackend: startupSettings.gpuBackend,
-  pinDeviceScale: startupSettings.pinDeviceScale,
-  strict: false,
-  windowed: true,
-  kiosk: false,
-})) {
+for (const raw of buildFlags(startupSettings)) {
   const match = /^--([^=]+)(?:=(.*))?$/.exec(raw);
   if (!match) continue;
   app.commandLine.appendSwitch(match[1], match[2]);
@@ -120,13 +128,6 @@ for (const raw of buildFlags({
 
 applyWindowsAppIdentity(app);
 app.enableSandbox();
-if (process.platform === 'win32' && startupSettings.processPriority === 'high') {
-  try {
-    os.setPriority(0, os.constants.priority.PRIORITY_HIGH);
-  } catch (error) {
-    console.warn('[client] could not raise process priority', error.message);
-  }
-}
 if (!app.requestSingleInstanceLock()) app.quit();
 
 const version = app.getVersion();
@@ -143,6 +144,8 @@ let lastPresenceAt = 0;
 const localStatusWriter = coalescedWriter(raw => { try { writeLocalStatus(raw); } catch(error) {console.warn('[client] local status write failed',error.message);} });
 let lastRunArchiveAt = 0;
 let pendingDeepLinkTarget = null;
+let updateStatus = { state: 'disabled' };
+let notifiedUpdate = null;
 const resultCapture = new PersonalBestCapture({
   capture: async () => {
     if (!gameWindow || gameWindow.isDestroyed()) return null;
@@ -182,6 +185,10 @@ function publicClientSettings() {
     discordRichPresence: currentSettings.discordRichPresence && !currentSettings.privacyMode,
     discordShowMap: currentSettings.discordShowMap && !currentSettings.privacyMode,
     privacyMode: currentSettings.privacyMode,
+    /* Chromium's own frame limit is off for this launch (the experimental
+       uncap). The game can then gate its requestAnimationFrame loop on the
+       GPU, as its own uncapped loop already does. */
+    browserUncapped: startupSettings.uncap,
   });
 }
 
@@ -245,7 +252,7 @@ function createGameWindow() {
     fullscreen: windowMode === 'fullscreen',
     kiosk: windowMode === 'kiosk',
     title: 'Bunnyhop',
-    show: !process.env.BUNNYHOP_SMOKE,
+    show: !smoke,
     webPreferences: {
       preload: path.join(here, 'game-preload.cjs'),
       contextIsolation: true,
@@ -261,74 +268,22 @@ function createGameWindow() {
   });
   gameWindow = win;
   const rememberWindow = () => {
-    if (process.env.BUNNYHOP_SMOKE || win.isDestroyed()) return;
+    if (smoke || win.isDestroyed()) return;
     currentSettings = withRuntimeOverrides(saveSettings(settingsFile,settingsAfterWindowClose(currentSettings,win.getNormalBounds())));
   };
   win.on('close',rememberWindow);
   win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); }
   });
-  if (process.env.BUNNYHOP_SMOKE) {
-    const deadline = setTimeout(() => { process.stderr.write('electron smoke: timeout\n'); app.exit(1); }, 45000);
-    win.webContents.once('dom-ready', async () => {
-      try {
-        const bridge = await win.webContents.executeJavaScript(`(async()=>{
-          if (window.bunnyhopClient?.version !== 1) throw new Error('missing game bridge');
-          const settings=await window.bunnyhopClient.getSettings();
-          if (settings.discordRichPresence !== false) throw new Error('unexpected public settings');
-          const cacheBytes = new Uint8Array([1,2,3]);
-          const cacheHash = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81';
-          if (!await window.bunnyhopClient.cacheContent(cacheHash, cacheBytes)) throw new Error('cache write failed');
-          const cacheHit = await window.bunnyhopClient.getCachedContent(cacheHash);
-          if (cacheHit?.length !== 3 || cacheHit[2] !== 3) throw new Error('cache IPC read failed');
-          window.bunnyhopClient.setPresence({kind:'results',mapId:'bhop_smoke',mapName:'Smoke',mode:'solo'});
-          const run=await window.bunnyhopClient.saveRunSummary({mapId:'bhop_smoke',mapName:'Smoke',timeMs:1234,ticks:158,tickRate:128,personalBest:true,verified:false,mode:'solo'});
-          if (!run.saved || !run.id) throw new Error('vault archive failed');
-          window.bunnyhopClient.resultSettled(run.id);
-          return true;
-        })()`);
-        if (!bridge) throw new Error('game bridge failed');
-        if (process.env.BUNNYHOP_SMOKE_GAME_SCREENSHOT) {
-          await new Promise(resolve => setTimeout(resolve,3000));
-          writeFileSync(process.env.BUNNYHOP_SMOKE_GAME_SCREENSHOT,(await win.capturePage()).toPNG());
-        }
-        if (process.env.BUNNYHOP_SMOKE !== 'live') {
-          await win.loadURL('about:blank');
-          const refused=await win.webContents.executeJavaScript(`window.bunnyhopClient.getSettings().then(()=>false,()=>true)`);
-          if (!refused) throw new Error('untrusted origin gained IPC');
-          const cacheRefused = await win.webContents.executeJavaScript(`window.bunnyhopClient.getCachedContent('a'.repeat(64)).then(()=>false,()=>true)`);
-          if (!cacheRefused) throw new Error('untrusted origin gained cache access');
-        }
-        const settings = createSettingsWindow();
-        settings.webContents.once('dom-ready', async () => {
-          try {
-            await settings.webContents.executeJavaScript(`(async()=>{
-              if (!Object.isFrozen(window.bunnyhopSettings)) throw new Error('missing settings bridge');
-              const b=await window.bunnyhopSettings.bootstrap();
-              if(b.settings.profile!=='balanced') throw new Error('bad default profile');
-              const runs=await window.bunnyhopSettings.listVault();
-              if(!runs.some(r=>r.mapId==='bhop_smoke' && r.timeMs===1234 && r.verified===false)) throw new Error('archive not visible');
-              if(!document.querySelector('#settings-form')) throw new Error('settings form absent');
-            })()`);
-            if (process.env.BUNNYHOP_SMOKE_SCREENSHOT) {
-              await new Promise(resolve => setTimeout(resolve,500));
-              writeFileSync(process.env.BUNNYHOP_SMOKE_SCREENSHOT,(await settings.capturePage()).toPNG());
-            }
-            clearTimeout(deadline);
-            process.stdout.write('electron smoke: trusted game IPC, run archive, settings bootstrap and vault passed\n');
-            app.quit();
-          } catch(error) { process.stderr.write(`electron smoke: ${error.message}\n`); app.exit(1); }
-        });
-      } catch(error) { process.stderr.write(`electron smoke: ${error.message}\n`); app.exit(1); }
-    });
-  }
+  if (smoke) runSmoke({ app, win, mode: smoke, createSettingsWindow });
   win.webContents.on('did-fail-load', (_event, code, description, url, mainFrame) => {
-    if (!mainFrame || code === -3 || process.env.BUNNYHOP_SMOKE || !isAllowedNavigation(url)) return;
+    if (!mainFrame || code === -3 || smoke || !isAllowedNavigation(url)) return;
     const html = '<!doctype html><meta charset=utf-8><meta http-equiv=Content-Security-Policy content="default-src \'none\'; style-src \'unsafe-inline\'"><style>body{background:#101318;color:#e6e9ef;font:18px system-ui;padding:12vh 12vw}a{color:#ffb43a}</style><h1>Bunnyhop could not load.</h1><p>Check your connection, then try again.</p><p><a href="https://bunnyhop.lol/">Retry Bunnyhop</a></p><p>F10 opens client settings and diagnostics.</p>';
     win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)).catch(()=>{});
     console.warn('[client] game load failed', code, description);
   });
   win.webContents.on('render-process-gone', () => { cancelPendingResultCapture(); queuePresence({kind:'menu'}); dialog.showMessageBox(win,{type:'error',message:'The game stopped unexpectedly.',buttons:['Reload game','Close'],defaultId:0}).then(({response}) => response===0 ? win.loadURL(gameUrl({client:clientValue})).catch(()=>{}) : win.close()); });
+  win.webContents.on('did-finish-load', raiseProcessPriority);
   win.on('closed', () => { if (gameWindow === win) gameWindow = null; });
   win.loadURL(gameUrl({
     client: clientValue,
@@ -338,7 +293,7 @@ function createGameWindow() {
 
 function setGameFullscreen(fullscreen) {
   if (!gameWindow || gameWindow.isDestroyed() || gameWindow.isKiosk()) return;
-  if (!process.env.BUNNYHOP_SMOKE) {
+  if (!smoke) {
     const next = settingsAfterFullscreenAction(currentSettings,{fullscreen,launchMode:windowPreferenceMode,cliMode:cliOverrides().windowMode});
     if (next !== currentSettings) { currentSettings = withRuntimeOverrides(saveSettings(settingsFile,next)); windowPreferenceMode = next.windowMode; }
   }
@@ -360,7 +315,7 @@ function createSettingsWindow() {
     backgroundColor: GAME_BACKGROUND,
     title: 'Bunnyhop Client Settings',
     autoHideMenuBar: true,
-    show: !process.env.BUNNYHOP_SMOKE,
+    show: !smoke,
     webPreferences: {
       preload: path.join(here, 'settings-preload.cjs'),
       contextIsolation: true,
@@ -488,28 +443,44 @@ function configureSettingsProtocol() {
   });
 }
 
-/* Updates are opt-in at build time: only the signed release workflow stamps
-   bunnyhopReleaseBuild into the packaged package.json. An unsigned CI or
-   local build never checks, whatever the runtime environment says. */
-function isReleaseBuild() {
-  try {
-    return JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).bunnyhopReleaseBuild === true;
-  } catch {
-    return false;
-  }
+/* The browser, GPU and game renderer processes, each by pid (Windows only).
+   Rerun after every game load and GPU restart: a new process starts at
+   Normal. */
+function raiseProcessPriority() {
+  const gamePid = gameWindow && !gameWindow.isDestroyed() ? gameWindow.webContents.getOSProcessId() : 0;
+  applyPriority({ priority: startupSettings.processPriority, metrics: app.getAppMetrics(), gamePid });
 }
 
+/* A notice, not an installer (update-check.mjs). The setting is read at
+   each check, so turning it off in F10 applies at once. */
 function configureUpdates() {
-  if (!app.isPackaged || !isReleaseBuild() || !existsSync(path.join(process.resourcesPath,'app-update.yml')) || process.env.BUNNYHOP_DISABLE_UPDATES === '1' || !startupSettings.updates) return;
-  if (process.platform === 'linux') {
-    console.warn('[client] automatic updates are disabled on Linux; use the signed release artifacts');
-    return;
-  }
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.logger = console;
-  autoUpdater.on('error', (error) => console.warn('[client] update check failed', error.message));
-  autoUpdater.checkForUpdatesAndNotify().catch((error) => console.warn('[client] update check failed', error.message));
+  if (!app.isPackaged || !releaseBuild || process.env.BUNNYHOP_DISABLE_UPDATES === '1') return;
+  const run = async () => {
+    if (!currentSettings.updates) return;
+    updateStatus = await checkForUpdate({ fetch: net.fetch, currentVersion: version });
+    if (updateStatus.state === 'error') console.warn('[client] update check failed', updateStatus.message);
+    settingsWindow?.webContents.send('update:status', updateStatus);
+    notifyUpdate();
+  };
+  setTimeout(run, UPDATE_CHECK_DELAY);
+  setInterval(run, UPDATE_CHECK_INTERVAL);
+}
+
+function openUpdatePage() {
+  if (updateStatus.state !== 'available' || !isReleasePage(updateStatus.page)) return { opened: false };
+  shell.openExternal(updateStatus.page).catch((error) => console.warn('[client] external open failed', error.message));
+  return { opened: true };
+}
+
+/* Once per version, and never during a run: it waits for the next menu or
+   results screen. */
+function notifyUpdate() {
+  if (updateStatus.state !== 'available' || notifiedUpdate === updateStatus.version || pendingPresence.kind === 'playing') return;
+  if (!Notification.isSupported()) return;
+  notifiedUpdate = updateStatus.version;
+  const notice = new Notification({ title: `Bunnyhop ${updateStatus.version} is available`, body: 'Click to open the download page. F10 → Client has it too.' });
+  notice.on('click', openUpdatePage);
+  notice.show();
 }
 
 function stopDiscord() {
@@ -578,6 +549,7 @@ function queuePresence(raw, immediate = false) {
   pendingPresence = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : { kind: 'menu' };
   if (pendingPresence.kind !== 'results') cancelPendingResultCapture();
   localStatusWriter.update(pendingPresence);
+  notifyUpdate();
   if (!discordClient) return;
   clearTimeout(presenceTimer);
   const wait = immediate ? 0 : Math.max(0, 15_000 - (Date.now() - lastPresenceAt));
@@ -638,12 +610,12 @@ function installIpc() {
       displays: publicDisplays(screen.getAllDisplays()),
       requiresRestart: needsRestart(),
       discord: discordStatus,
+      update: updateStatus,
     };
   });
   ipcMain.handle('settings:save', async (event, raw) => {
     requireSettingsSender(event);
     currentSettings = withRuntimeOverrides(saveSettings(settingsFile, raw));
-    if (!currentSettings.updates) { autoUpdater.autoDownload = false; autoUpdater.autoInstallOnAppQuit = false; }
     if (!currentSettings.capturePersonalBests || !currentSettings.localRunVault) cancelPendingResultCapture();
     gameWindow?.webContents.send('client:settings', publicClientSettings());
     await configureDiscord();
@@ -670,6 +642,7 @@ function installIpc() {
     const error = await shell.openPath(vaultRoot);
     return { opened: error === '', error };
   });
+  ipcMain.handle('settings:open-update', (event) => { requireSettingsSender(event); return openUpdatePage(); });
   ipcMain.handle('settings:relaunch', (event) => {
     requireSettingsSender(event);
     app.relaunch();
@@ -713,19 +686,16 @@ app.whenReady().then(async () => {
   if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
   configureSettingsProtocol();
   configureSession(session.defaultSession);
-  if (process.env.BUNNYHOP_SMOKE && process.env.BUNNYHOP_SMOKE !== 'live') {
-    protocol.handle('https', request => {
-      if (!isGameUrl(request.url)) return new Response('Refused',{status:403});
-      return new Response('<!doctype html><title>Bunnyhop integration fixture</title><h1>Bunnyhop</h1>',{headers:{'Content-Type':'text/html'}});
-    });
-  }
+  if (smoke && smoke !== 'live') installSmokeFixture(protocol);
   installIpc();
   ensureVaults();
   app.on('certificate-error', (_event, _contents, _url, _error, _certificate, callback) => callback(false));
-  if (app.isPackaged && !process.env.BUNNYHOP_SMOKE) app.setAsDefaultProtocolClient('bunnyhop');
+  if (app.isPackaged && !smoke) app.setAsDefaultProtocolClient('bunnyhop');
+  app.on('child-process-gone', (_event, details) => { if (details.type === 'GPU') setTimeout(raiseProcessPriority, 2_000); });
 
   createGameWindow();
-  if (!process.env.BUNNYHOP_SMOKE) configureUpdates();
+  raiseProcessPriority();
+  if (!smoke) configureUpdates();
   await configureDiscord();
   queuePresence(pendingPresence, true);
 

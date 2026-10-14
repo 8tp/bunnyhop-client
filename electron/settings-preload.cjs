@@ -22,5 +22,12 @@ contextBridge.exposeInMainWorld('bunnyhopSettings', Object.freeze({
     ipcRenderer.on('discord:status', wrapped);
     return () => ipcRenderer.removeListener('discord:status', wrapped);
   },
+  onUpdateStatus: (listener) => {
+    if (typeof listener !== 'function') return () => {};
+    const wrapped = (_event, value) => listener(value);
+    ipcRenderer.on('update:status', wrapped);
+    return () => ipcRenderer.removeListener('update:status', wrapped);
+  },
+  openUpdate: () => ipcRenderer.invoke('settings:open-update'),
   relaunch: () => ipcRenderer.invoke('settings:relaunch'),
 }));
