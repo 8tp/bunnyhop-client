@@ -1,9 +1,228 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><title>Bunnyhop Client Settings</title><link rel="stylesheet" href="settings.css"></head><body>
-<header><p class="eyebrow">BUNNYHOP / DESKTOP</p><h1>Your client.</h1><p>Display, privacy, and a local record of your runs.</p></header>
-<main><form id="settings-form">
-<section><h2>Play</h2><label>Profile<select name="profile"><option value="balanced">Balanced · display paced</option><option value="competitive">Competitive · higher priority</option><option value="compatibility">Compatibility</option><option value="custom">Custom</option></select></label><p class="hint">To draw past your refresh rate, turn on Exceed monitor FPS and the low-latency canvas in the game's Graphics settings. The game paces those frames on the GPU. No profile uncaps the whole browser.</p><label>Window<select name="windowMode"><option value="fullscreen">Fullscreen</option><option value="windowed">Windowed</option><option value="kiosk">Kiosk</option></select></label><label>Display<select name="preferredDisplay" id="displays"><option value="primary">Primary</option><option value="highest-refresh">Highest refresh</option></select></label><label><input type="checkbox" name="preferHighestRefresh"> Prefer highest refresh display</label><label><input type="checkbox" name="preferDiscreteGpu"> Prefer the discrete GPU on laptops with two GPUs</label><label><input type="checkbox" name="uncap"> Uncap the whole browser · experimental, can feel worse than the game's own setting</label><label>GPU backend<select name="gpuBackend"><option value="auto">Automatic</option><option value="d3d11">Direct3D 11 · Windows</option><option value="vulkan">Vulkan</option><option value="opengl">OpenGL</option></select></label><label><input type="checkbox" name="pinDeviceScale"> Force device scale to 100%</label><label>Process priority<select name="processPriority"><option value="normal">Normal</option><option value="above-normal">Above normal · Windows</option></select></label></section>
-<section><h2>Discord & privacy</h2><label><input type="checkbox" name="discordRichPresence"> Show Bunnyhop on Discord</label><label><input type="checkbox" name="discordShowMap"> Include map name and artwork</label><label><input type="checkbox" name="privacyMode"> Privacy mode · hide Discord activity</label><p id="discord-status" class="hint"></p></section>
-<section><h2>Local run vault</h2><label><input type="checkbox" name="localRunVault"> Save completed run summaries on this computer</label><label><input type="checkbox" name="capturePersonalBests"> Capture results screenshots for personal bests</label><p class="hint">Run history saved on this computer. Replays remain in the game.</p><button type="button" id="open-vault">Open vault folder</button><button type="button" id="capture">Save screenshot · F9</button><div id="runs"></div><img id="run-image" hidden alt="Saved personal best results"></section>
-<section><h2>Client</h2><label><input type="checkbox" name="updates"> Tell me when a new client version is out</label><label><input type="checkbox" name="showDiagnosticsOnStart"> Open settings at launch</label><p class="hint">Release builds read a signed release note from GitHub at launch and every 6 hours. Nothing is downloaded or installed for you. Local builds never check.</p><p id="update-status" class="hint"></p><button type="button" id="open-update" hidden>Open download page</button><button type="button" id="diagnostics">View diagnostics</button><button type="button" id="export-report">Export support report</button><pre id="report" hidden></pre></section>
-<footer><p id="status" role="status"></p><button type="submit" class="primary">Save settings</button><button type="button" id="relaunch" hidden>Restart client</button><span>F10 Settings · F11 Fullscreen</span></footer>
-</form></main><script src="settings.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Bunnyhop Client Settings</title>
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<!-- The game's Settings screen (apps/web/src/ui/settings.css): a rail of sections on the left, one scrolling page on the
+     right, label | control rows on raised strips, and the row under the pointer explains itself in the help line.
+     Every change saves at once. -->
+<form id="settings-form" class="settings" novalidate>
+  <header class="set-head">
+    <h1>Desktop client</h1>
+    <span id="version" class="set-version"></span>
+  </header>
+
+  <aside class="set-side">
+    <nav class="set-rail" aria-label="Sections">
+      <button type="button" class="set-rail-item on" data-target="performance"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 3.5H17.5V13.5H2.5Z"/><path d="M10 13.5V17M6.5 17H13.5"/></svg>Performance</button>
+      <button type="button" class="set-rail-item" data-target="discord"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4H17V13H8.5L5 16.5V13H3Z"/><path d="M7 8.5H7.5M12.5 8.5H13"/></svg>Discord</button>
+      <button type="button" class="set-rail-item" data-target="vault"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 3.5H17.5V7H2.5Z"/><path d="M3.5 7V16.5H16.5V7"/><path d="M8 10H12"/></svg>Run vault</button>
+      <button type="button" class="set-rail-item" data-target="client"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 6H7M11 6H17.5M2.5 14H11M15 14H17.5"/><circle cx="9" cy="6" r="2"/><circle cx="13" cy="14" r="2"/></svg>Client</button>
+    </nav>
+    <span id="saved" class="set-saved" aria-hidden="true"><svg class="icon" viewBox="0 0 20 20"><path d="M4 10.5L8 14.5L16 5.5"/></svg></span>
+  </aside>
+
+  <main id="scroll" class="set-scroll" tabindex="-1">
+    <div class="set-sections">
+
+      <section id="performance" class="set-sec">
+        <div class="set-sec-head"><h2>Performance</h2></div>
+        <div class="set-group">
+          <div class="set-group-rows">
+            <div class="set-row" data-help="Balanced follows your display. Competitive also raises process priority on Windows. Compatibility runs windowed on the integrated GPU.">
+              <span class="set-name">Profile</span>
+              <div class="seg" role="radiogroup" aria-label="Profile" data-seg="profile">
+                <button type="button" value="balanced">Balanced</button>
+                <button type="button" value="competitive">Competitive</button>
+                <button type="button" value="compatibility">Compatibility</button>
+                <button type="button" value="custom" disabled>Custom</button>
+              </div>
+              <input type="hidden" name="profile">
+            </div>
+          </div>
+        </div>
+
+        <div class="set-cols">
+          <div class="set-group">
+            <h3 class="set-group-title">Window</h3>
+            <div class="set-group-rows">
+              <div class="set-row" data-help="Kiosk locks the window to fullscreen. F11 switches between fullscreen and windowed.">
+                <span class="set-name">Mode</span>
+                <div class="seg" role="radiogroup" aria-label="Window mode" data-seg="windowMode">
+                  <button type="button" value="fullscreen">Fullscreen</button>
+                  <button type="button" value="windowed">Windowed</button>
+                  <button type="button" value="kiosk">Kiosk</button>
+                </div>
+                <input type="hidden" name="windowMode">
+              </div>
+              <div class="set-row" data-help="The display the game opens on.">
+                <label class="set-name" for="displays">Display</label>
+                <select id="displays" name="preferredDisplay">
+                  <option value="primary">Primary</option>
+                  <option value="highest-refresh">Highest refresh</option>
+                </select>
+              </div>
+              <div class="set-row" data-help="With more than one display, open on the one with the highest refresh rate.">
+                <label class="set-name" for="s-refresh">Prefer highest refresh</label>
+                <input id="s-refresh" class="switch" type="checkbox" name="preferHighestRefresh">
+              </div>
+            </div>
+          </div>
+
+          <div class="set-group">
+            <h3 class="set-group-title">Rendering</h3>
+            <div class="set-group-rows">
+              <div class="set-row" data-help="On laptops with two GPUs, run the game on the faster one.">
+                <label class="set-name" for="s-gpu">Discrete GPU</label>
+                <input id="s-gpu" class="switch" type="checkbox" name="preferDiscreteGpu">
+              </div>
+              <div class="set-row" data-help="Leave on Automatic unless the game fails to start or stutters. Direct3D 11 is Windows only.">
+                <label class="set-name" for="s-backend">GPU backend</label>
+                <select id="s-backend" name="gpuBackend">
+                  <option value="auto">Automatic</option>
+                  <option value="d3d11">Direct3D 11</option>
+                  <option value="vulkan">Vulkan</option>
+                  <option value="opengl">OpenGL</option>
+                </select>
+              </div>
+              <div class="set-row" data-help="Render at 100% scale whatever the system display scale is. Sharper text on some screens, smaller UI on others.">
+                <label class="set-name" for="s-scale">Force 100% scale</label>
+                <input id="s-scale" class="switch" type="checkbox" name="pinDeviceScale">
+              </div>
+              <div class="set-row" data-help="Above normal raises the game's processes over background apps. Windows only.">
+                <span class="set-name">Priority<small class="set-hint">Windows</small></span>
+                <div class="seg" role="radiogroup" aria-label="Process priority" data-seg="processPriority">
+                  <button type="button" value="normal">Normal</button>
+                  <button type="button" value="above-normal">Above normal</button>
+                </div>
+                <input type="hidden" name="processPriority">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <h3 class="set-group-title">Experimental</h3>
+          <div class="set-group-rows">
+            <div class="set-row" data-help="Lifts the frame limit for the whole browser, menus included, with nothing holding frames back. It often feels worse than Exceed monitor FPS in the game's Graphics settings.">
+              <label class="set-name" for="s-uncap">Uncap the whole browser</label>
+              <input id="s-uncap" class="switch" type="checkbox" name="uncap">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="discord" class="set-sec">
+        <div class="set-sec-head"><h2>Discord</h2><span id="discord-status" class="set-state"></span></div>
+        <div class="set-group">
+          <div class="set-group-rows">
+            <div class="set-row" data-help="Your Discord status shows the map you're on and your run.">
+              <label class="set-name" for="s-rpc">Show Bunnyhop on Discord</label>
+              <input id="s-rpc" class="switch" type="checkbox" name="discordRichPresence">
+            </div>
+            <div class="set-row" data-help="Off shows Bunnyhop without saying which map.">
+              <label class="set-name" for="s-map">Map name and artwork</label>
+              <input id="s-map" class="switch" type="checkbox" name="discordShowMap">
+            </div>
+            <div class="set-row" data-help="Hides all Discord activity until you turn it off, whatever the switches above say.">
+              <label class="set-name" for="s-privacy">Privacy mode</label>
+              <input id="s-privacy" class="switch" type="checkbox" name="privacyMode">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="vault" class="set-sec">
+        <div class="set-sec-head">
+          <h2>Run vault</h2>
+          <button type="button" class="btn btn-ghost btn-sm" id="open-vault">Open folder</button>
+        </div>
+        <div class="set-cols">
+          <div class="set-group">
+            <div class="set-group-rows">
+              <div class="set-row" data-help="A small record of each finished run, kept on this computer. Replays stay in the game.">
+                <label class="set-name" for="s-vault">Save finished runs</label>
+                <input id="s-vault" class="switch" type="checkbox" name="localRunVault">
+              </div>
+              <div class="set-row" data-help="Takes a picture of the results screen when you set a personal best.">
+                <label class="set-name" for="s-pbshot">Screenshot personal bests</label>
+                <input id="s-pbshot" class="switch" type="checkbox" name="capturePersonalBests">
+              </div>
+            </div>
+          </div>
+          <div class="set-group">
+            <div class="set-group-rows">
+              <div class="set-row" data-help="Saves a picture of the game window wherever you choose.">
+                <span class="set-name">Screenshot<small class="set-hint">F9 in game</small></span>
+                <button type="button" class="btn btn-sm" id="capture">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="set-group">
+          <h3 class="set-group-title">Recent runs</h3>
+          <ol id="runs" class="runs"></ol>
+        </div>
+      </section>
+
+      <section id="client" class="set-sec">
+        <div class="set-sec-head"><h2>Client</h2></div>
+        <div class="set-cols">
+          <div class="set-group">
+            <div class="set-group-rows">
+              <div class="set-row" data-help="The client reads a signed release note from GitHub at launch and every 6 hours. Nothing is downloaded or installed for you.">
+                <span class="set-name">Updates<small id="update-status" class="set-hint"></small></span>
+                <button type="button" class="btn btn-sm primary" id="open-update" hidden>Download</button>
+              </div>
+              <div class="set-row" data-help="Tell me when a new client version is out.">
+                <label class="set-name" for="s-updates">Update notices</label>
+                <input id="s-updates" class="switch" type="checkbox" name="updates">
+              </div>
+              <div class="set-row" data-help="Open this window every time the client starts.">
+                <label class="set-name" for="s-onstart">Open settings at launch</label>
+                <input id="s-onstart" class="switch" type="checkbox" name="showDiagnosticsOnStart">
+              </div>
+            </div>
+          </div>
+          <div class="set-group">
+            <div class="set-group-rows">
+              <div class="set-row" data-help="Displays, GPU and the settings this launch runs with.">
+                <span class="set-name">Diagnostics</span>
+                <button type="button" class="btn btn-sm" id="diagnostics">View</button>
+              </div>
+              <div class="set-row" data-help="Saves the diagnostics as a file to send with a bug report. It holds no account details.">
+                <span class="set-name">Support report</span>
+                <button type="button" class="btn btn-sm" id="export-report">Export</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="set-foot">
+    <p id="help" class="set-help"></p>
+    <div id="restart-bar" class="set-restart" hidden>
+      <span>Restart to apply display and rendering changes.</span>
+      <button type="button" class="btn btn-sm primary" id="relaunch">Restart client</button>
+    </div>
+    <p id="status" class="set-status" role="status"></p>
+  </footer>
+</form>
+
+<dialog id="viewer" class="viewer">
+  <div class="viewer-head"><h2 id="viewer-title"></h2><button type="button" class="btn btn-ghost btn-sm" id="viewer-close">Close</button></div>
+  <img id="run-image" alt="" hidden>
+  <pre id="report" hidden></pre>
+</dialog>
+
+<script src="settings.js"></script>
+</body>
+</html>

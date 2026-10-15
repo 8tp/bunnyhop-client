@@ -84,6 +84,7 @@ const RESTART_KEYS = Object.freeze([
   'windowMode', 'uncap', 'preferDiscreteGpu', 'gpuBackend', 'pinDeviceScale',
   'processPriority', 'preferredDisplay', 'preferHighestRefresh',
 ]);
+const DISCORD_KEYS = Object.freeze(['discordRichPresence', 'privacyMode', 'discordApplicationId']);
 const UPDATE_CHECK_DELAY = 20_000;
 const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 
@@ -607,6 +608,7 @@ function installIpc() {
   ipcMain.handle('settings:bootstrap', async (event) => {
     requireSettingsSender(event);
     return {
+      version,
       settings: currentSettings,
       displays: publicDisplays(screen.getAllDisplays()),
       requiresRestart: needsRestart(),
@@ -616,11 +618,14 @@ function installIpc() {
   });
   ipcMain.handle('settings:save', async (event, raw) => {
     requireSettingsSender(event);
+    const before = currentSettings;
     currentSettings = withRuntimeOverrides(saveSettings(settingsFile, raw));
     if (!currentSettings.capturePersonalBests || !currentSettings.localRunVault) cancelPendingResultCapture();
     gameWindow?.webContents.send('client:settings', publicClientSettings());
-    await configureDiscord();
-    queuePresence(pendingPresence, true);
+    /* The window saves on every change, so Discord reconnects only when its
+       own switches change. */
+    if (DISCORD_KEYS.some((key) => before[key] !== currentSettings[key])) await configureDiscord();
+    else if (before.discordShowMap !== currentSettings.discordShowMap) queuePresence(pendingPresence, true);
     return { settings: currentSettings, requiresRestart: needsRestart() };
   });
   ipcMain.handle('settings:apply-preset', (event, profile) => {
