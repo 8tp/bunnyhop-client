@@ -522,7 +522,8 @@ function writeLocalStatus(raw) {
 
 async function configureDiscord() {
   stopDiscord();
-  if (!currentSettings.discordRichPresence || currentSettings.privacyMode) return;
+  // A smoke run never shows up on the developer's own Discord.
+  if (smoke || !currentSettings.discordRichPresence || currentSettings.privacyMode) return;
   if (!currentSettings.discordApplicationId) {
     discordStatus = { state: 'missing-application-id' };
     settingsWindow?.webContents.send('discord:status', discordStatus);

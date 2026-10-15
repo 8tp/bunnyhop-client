@@ -42,3 +42,11 @@ test('command-line overrides apply for one launch', () => {
   assert.equal(launch.preferDiscreteGpu, false);
   assert.equal(saved.uncap, false);
 });
+
+test('Discord presence is on by default and turned on once for older files', () => {
+  assert.equal(sanitizeSettings().discordRichPresence, true);
+  assert.equal(sanitizeSettings({ version: 2, discordRichPresence: false, privacyMode: false }).discordRichPresence, true);
+  assert.equal(sanitizeSettings({ version: 2, discordRichPresence: false, privacyMode: true }).privacyMode, true);
+  assert.equal(sanitizeSettings({ version: 2, profile: 'competitive', uncap: true }).uncap, true);
+  assert.equal(sanitizeSettings({ version: SETTINGS_VERSION, discordRichPresence: false }).discordRichPresence, false);
+});
