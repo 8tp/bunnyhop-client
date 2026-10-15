@@ -28,6 +28,7 @@ import {
   isSafeExternal,
 } from './policy.mjs';
 import {
+  BUNNYHOP_DISCORD_APPLICATION_ID,
   applyPreset,
   defaultSettingsPath,
   loadSettings,
@@ -49,6 +50,7 @@ import {
   SETTINGS_ASSET_TYPES,
 } from './security.mjs';
 import { PersonalBestCapture, RunVault } from './run-vault.mjs';
+import { BENCHMARK_SECONDS, BenchmarkStore, sanitizeBenchmark } from './benchmark.mjs';
 import { applyPriority } from './process-priority.mjs';
 import { checkForUpdate, isReleasePage } from './update-check.mjs';
 import { installSmokeFixture, runSmoke } from './smoke.mjs';
@@ -75,6 +77,7 @@ const vaultRoot = path.join(path.dirname(settingsFile), 'vault');
 const captureVault = path.join(vaultRoot, 'captures');
 const reportVault = path.join(vaultRoot, 'reports');
 const runVault = new RunVault(vaultRoot);
+const benchmarks = new BenchmarkStore(path.join(vaultRoot, 'benchmarks.json'));
 const contentCache = new ContentCache(path.join(app.getPath('userData'), 'content-cache'));
 /* The web app's page ground (index.html theme-color, --ground in its
    tokens), so a window never flashes a different black before the first
@@ -84,7 +87,9 @@ const RESTART_KEYS = Object.freeze([
   'windowMode', 'uncap', 'preferDiscreteGpu', 'gpuBackend', 'pinDeviceScale',
   'processPriority', 'preferredDisplay', 'preferHighestRefresh',
 ]);
-const DISCORD_KEYS = Object.freeze(['discordRichPresence', 'privacyMode', 'discordApplicationId']);
+const DISCORD_KEYS = Object.freeze(['discordRichPresence', 'privacyMode', 'discordApplicationId', 'discordJoin']);
+/* Settings that change only what the activity says: pushed again at once. */
+const ACTIVITY_KEYS = Object.freeze(['discordShowMap', 'discordJoinLobbies']);
 const UPDATE_CHECK_DELAY = 20_000;
 const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 
@@ -146,6 +151,10 @@ const localStatusWriter = coalescedWriter(raw => { try { writeLocalStatus(raw); 
 let lastRunArchiveAt = 0;
 let pendingDeepLinkTarget = null;
 let updateStatus = { state: 'disabled' };
+/* The game registers its benchmark (game-preload onBenchmark) on every map
+   page; a navigation forgets it. */
+let benchmarkReady = false;
+let benchmarkRunning = false;
 let notifiedUpdate = null;
 const resultCapture = new PersonalBestCapture({
   capture: async () => {
@@ -274,7 +283,7 @@ function createGameWindow() {
   };
   win.on('close',rememberWindow);
   win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); }
+    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); setBenchmark(false, false); }
   });
   if (smoke) runSmoke({ app, win, mode: smoke, createSettingsWindow });
   win.webContents.on('did-fail-load', (_event, code, description, url, mainFrame) => {
@@ -530,7 +539,7 @@ async function configureDiscord() {
     settingsWindow?.webContents.send('discord:status', discordStatus);
     return;
   }
-  const client = new DiscordPresence(currentSettings.discordApplicationId);
+  const client = new DiscordPresence(currentSettings.discordApplicationId, { join: currentSettings.discordJoin });
   discordClient = client;
   client.on('status', (status) => {
     if (discordClient !== client) return;
@@ -543,6 +552,12 @@ async function configureDiscord() {
     settingsWindow?.webContents.send('discord:status', discordStatus);
     console.warn('[client] Discord Rich Presence unavailable', error.message);
   });
+  /* A friend's Join: the secret is checked in discord-rpc.mjs joinTarget and
+     only ever opens a game room. */
+  client.on('join', (target) => {
+    if (discordClient === client && navigateDeepLink(target)) console.info('[client] joining from Discord');
+  });
+  client.on('join-unavailable', (message) => console.warn('[client] Discord Join unavailable', message));
   await client.start();
   queuePresence(pendingPresence, true);
 }
@@ -604,6 +619,35 @@ function loadVaultScreenshot(id) {
   return { found: true, mime: 'image/png', data: png.toString('base64') };
 }
 
+function setBenchmark(ready, running) {
+  benchmarkReady = ready;
+  benchmarkRunning = running;
+  settingsWindow?.webContents.send('benchmark:state', { ready, running });
+}
+
+function startBenchmark() {
+  if (!benchmarkReady || !gameWindow || gameWindow.isDestroyed()) throw new Error('Open a map first.');
+  setBenchmark(true, true);
+  gameWindow.webContents.send('client:benchmark', { seconds: BENCHMARK_SECONDS });
+  gameWindow.show();
+  gameWindow.focus();
+  return { started: true };
+}
+
+function saveBenchmark(raw) {
+  if (!benchmarkRunning) return;
+  setBenchmark(benchmarkReady, false);
+  const display = selectedDisplay();
+  const result = sanitizeBenchmark(raw, {
+    ...startupSettings,
+    display: display?.label || '',
+    refreshHz: display?.displayFrequency || null,
+  });
+  if (!result) return;
+  ensureVaults();
+  settingsWindow?.webContents.send('benchmark:results', benchmarks.add(result));
+}
+
 function installIpc() {
   ipcMain.handle('settings:bootstrap', async (event) => {
     requireSettingsSender(event);
@@ -614,6 +658,7 @@ function installIpc() {
       requiresRestart: needsRestart(),
       discord: discordStatus,
       update: updateStatus,
+      benchmark: { ready: benchmarkReady, running: benchmarkRunning, results: benchmarks.list() },
     };
   });
   ipcMain.handle('settings:save', async (event, raw) => {
@@ -625,7 +670,7 @@ function installIpc() {
     /* The window saves on every change, so Discord reconnects only when its
        own switches change. */
     if (DISCORD_KEYS.some((key) => before[key] !== currentSettings[key])) await configureDiscord();
-    else if (before.discordShowMap !== currentSettings.discordShowMap) queuePresence(pendingPresence, true);
+    else if (ACTIVITY_KEYS.some((key) => before[key] !== currentSettings[key])) queuePresence(pendingPresence, true);
     return { settings: currentSettings, requiresRestart: needsRestart() };
   });
   ipcMain.handle('settings:apply-preset', (event, profile) => {
@@ -649,6 +694,13 @@ function installIpc() {
     return { opened: error === '', error };
   });
   ipcMain.handle('settings:open-update', (event) => { requireSettingsSender(event); return openUpdatePage(); });
+  ipcMain.handle('settings:benchmark-start', (event) => { requireSettingsSender(event); return startBenchmark(); });
+  ipcMain.on('client:benchmark-ready', (event) => {
+    try { requireGameSender(event); setBenchmark(true, false); } catch (error) { console.warn('[client] benchmark refused', error.message); }
+  });
+  ipcMain.on('client:benchmark-result', (event, raw) => {
+    try { requireGameSender(event); saveBenchmark(raw); } catch (error) { console.warn('[client] benchmark result refused', error.message); }
+  });
   ipcMain.handle('settings:relaunch', (event) => {
     requireSettingsSender(event);
     app.relaunch();
@@ -696,7 +748,12 @@ app.whenReady().then(async () => {
   installIpc();
   ensureVaults();
   app.on('certificate-error', (_event, _contents, _url, _error, _certificate, callback) => callback(false));
-  if (app.isPackaged && !smoke) app.setAsDefaultProtocolClient('bunnyhop');
+  if (app.isPackaged && !smoke) {
+    app.setAsDefaultProtocolClient('bunnyhop');
+    /* Discord launches discord-<application id>:// when a friend presses Join
+       and the client is closed; the join itself arrives over RPC once it runs. */
+    app.setAsDefaultProtocolClient(`discord-${BUNNYHOP_DISCORD_APPLICATION_ID}`);
+  }
   app.on('child-process-gone', (_event, details) => { if (details.type === 'GPU') setTimeout(raiseProcessPriority, 2_000); });
 
   createGameWindow();

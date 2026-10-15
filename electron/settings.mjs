@@ -30,6 +30,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   discordRichPresence: true,
   discordApplicationId: BUNNYHOP_DISCORD_APPLICATION_ID,
   discordShowMap: true,
+  /* Discord Join: friends join your public server; private lobbies only if allowed too. */
+  discordJoin: true,
+  discordJoinLobbies: false,
   privacyMode: false,
 });
 
@@ -126,6 +129,8 @@ export function sanitizeSettings(raw = {}) {
     discordRichPresence: bool(input.discordRichPresence, base.discordRichPresence),
     discordApplicationId: /^\d{17,20}$/.test(String(input.discordApplicationId || '')) ? String(input.discordApplicationId) : BUNNYHOP_DISCORD_APPLICATION_ID,
     discordShowMap: bool(input.discordShowMap, base.discordShowMap),
+    discordJoin: bool(input.discordJoin, base.discordJoin),
+    discordJoinLobbies: bool(input.discordJoinLobbies, base.discordJoinLobbies),
     privacyMode: bool(input.privacyMode, base.privacyMode),
   };
 }

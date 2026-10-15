@@ -172,6 +172,12 @@ input.switch:disabled { opacity: 0.45; cursor: not-allowed; }
 .run-shot { width: 7rem; display: flex; justify-content: flex-end; }
 .runs-empty { padding: 1.1rem 0.85rem; color: var(--cream-3); font-size: var(--fs-sm); background: var(--raise); border-radius: var(--r-2); }
 
+/* ---- benchmark results: the same strips as runs */
+.bench:not(:empty) { margin-top: 2px; }
+.bench .run-time { flex-direction: column; align-items: flex-end; gap: 0; }
+.bench .run-time small { color: var(--cream-3); font-size: var(--fs-xs); font-weight: 500; }
+.bench > li { grid-template-columns: minmax(0, 1fr) auto; }
+
 /* ---- under the page */
 .set-foot { grid-column: 2; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 .set-help { margin: -0.25rem 0 0; min-height: 2.6em; padding: 0 0.85rem; font-family: var(--font-text); font-size: var(--fs-sm); line-height: 1.3; color: var(--cream-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: pretty; }

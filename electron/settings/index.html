@@ -107,6 +107,17 @@
         </div>
 
         <div class="set-group">
+          <h3 class="set-group-title">Benchmark</h3>
+          <div class="set-group-rows">
+            <div class="set-row" data-help="Measures 30 seconds of play on the map you're on. Run it after changing a setting to compare.">
+              <span class="set-name">Frame times<small id="bench-state" class="set-hint"></small></span>
+              <button type="button" class="btn btn-sm" id="bench-start">Start</button>
+            </div>
+          </div>
+          <ol id="bench" class="runs bench"></ol>
+        </div>
+
+        <div class="set-group">
           <h3 class="set-group-title">Experimental</h3>
           <div class="set-group-rows">
             <div class="set-row" data-help="Lifts the frame limit for the whole browser, menus included, with nothing holding frames back. It often feels worse than Exceed monitor FPS in the game's Graphics settings.">
@@ -128,6 +139,14 @@
             <div class="set-row" data-help="Off shows Bunnyhop without saying which map.">
               <label class="set-name" for="s-map">Map name and artwork</label>
               <input id="s-map" class="switch" type="checkbox" name="discordShowMap">
+            </div>
+            <div class="set-row" data-help="Friends get a Join button on your Discord profile while you're on a public server. It opens the same server in their client.">
+              <label class="set-name" for="s-join">Friends can join</label>
+              <input id="s-join" class="switch" type="checkbox" name="discordJoin">
+            </div>
+            <div class="set-row" data-help="Also show Join in your private lobbies. Anyone who can see your Discord status could then get in.">
+              <label class="set-name" for="s-joinlobby">Include private lobbies</label>
+              <input id="s-joinlobby" class="switch" type="checkbox" name="discordJoinLobbies">
             </div>
             <div class="set-row" data-help="Hides all Discord activity until you turn it off, whatever the switches above say.">
               <label class="set-name" for="s-privacy">Privacy mode</label>

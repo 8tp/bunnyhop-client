@@ -3,6 +3,10 @@ productName: Bunnyhop
 protocols:
   - name: Bunnyhop links
     schemes: [bunnyhop]
+  # Discord starts the client through discord-<application id>:// when a
+  # friend presses Join and the client isn't running (main.mjs).
+  - name: Discord Join
+    schemes: [discord-1556467060916224040]
 copyright: Copyright © 2026 Aeperion
 # Predictable names for the download page and scripts/release.mjs.
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
@@ -20,6 +24,7 @@ files:
   - electron/diagnostics.mjs
   - electron/discord-rpc.mjs
   - electron/run-vault.mjs
+  - electron/benchmark.mjs
   - electron/security.mjs
   - electron/game-preload.cjs
   - electron/settings-preload.cjs

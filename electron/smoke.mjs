@@ -45,6 +45,9 @@ export function runSmoke({ app, win, mode, createSettingsWindow }) {
         if (!refused) throw new Error('untrusted origin gained IPC');
         const cacheRefused = await win.webContents.executeJavaScript(`window.bunnyhopClient.getCachedContent('a'.repeat(64)).then(()=>false,()=>true)`);
         if (!cacheRefused) throw new Error('untrusted origin gained cache access');
+        // Back on the game, which registers a benchmark that answers at once (the real one measures 30 s of play).
+        await win.loadURL('https://bunnyhop.lol/');
+        await win.webContents.executeJavaScript(`window.bunnyhopClient.onBenchmark(r => window.bunnyhopClient.benchmarkResult({map:'bhop_smoke',seconds:r.seconds,frames:900,interval:{avg:3.3,p50:3.2,p99:6.1,max:20},work:{p50:1,p99:2,max:3},hitches:2,graphics:{width:1280,height:720}})); true`);
       }
       const settings = createSettingsWindow();
       settings.webContents.once('dom-ready', async () => {
@@ -56,13 +59,20 @@ export function runSmoke({ app, win, mode, createSettingsWindow }) {
             const runs=await window.bunnyhopSettings.listVault();
             if(!runs.some(r=>r.mapId==='bhop_smoke' && r.timeMs===1234 && r.verified===false)) throw new Error('archive not visible');
             if(!document.querySelector('#settings-form')) throw new Error('settings form absent');
+            if(${mode !== 'live'}) {
+              if(!b.benchmark?.ready) throw new Error('benchmark not offered');
+              const results=new Promise((resolve,reject)=>{window.bunnyhopSettings.onBenchmarkResults(resolve);setTimeout(()=>reject(new Error('benchmark result missing')),5000);});
+              await window.bunnyhopSettings.startBenchmark();
+              const list=await results;
+              if(list[0]?.frames!==900 || list[0]?.map!=='bhop_smoke' || list[0]?.launch?.profile!=='balanced') throw new Error('benchmark result not saved');
+            }
           })()`);
           if (process.env.BUNNYHOP_SMOKE_SCREENSHOT) {
             await new Promise(resolve => setTimeout(resolve,500));
             writeFileSync(process.env.BUNNYHOP_SMOKE_SCREENSHOT,(await settings.capturePage()).toPNG());
           }
           clearTimeout(deadline);
-          process.stdout.write('electron smoke: trusted game IPC, run archive, settings bootstrap and vault passed\n');
+          process.stdout.write('electron smoke: trusted game IPC, run archive, settings bootstrap, vault and benchmark passed\n');
           app.quit();
         } catch(error) { process.stderr.write(`electron smoke: ${error.message}\n`); app.exit(1); }
       });

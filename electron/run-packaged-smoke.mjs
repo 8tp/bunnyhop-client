@@ -11,7 +11,9 @@ const directories = existsSync(output)
 
 let executable;
 if (process.platform === 'darwin') {
-  const directory = directories.find((name) => name === 'mac' || name.startsWith('mac-'));
+  // electron-builder names the x64 build plain "mac"; prefer this machine's architecture.
+  const directory = directories.find((name) => name === (process.arch === 'x64' ? 'mac' : `mac-${process.arch}`))
+    ?? directories.find((name) => name === 'mac' || name.startsWith('mac-'));
   if (directory) executable = path.join(output, directory, 'Bunnyhop.app', 'Contents', 'MacOS', 'Bunnyhop');
 } else if (process.platform === 'win32') {
   executable = path.join(output, 'win-unpacked', 'Bunnyhop.exe');
