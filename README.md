@@ -84,7 +84,7 @@ Every release lists its files' checksums in `SHA256SUMS`. The client tells you w
 
 ## Keys
 
-| Key | |
+| Key | Does |
 | --- | --- |
 | <kbd>F10</kbd> | Client settings |
 | <kbd>F11</kbd> | Fullscreen |
