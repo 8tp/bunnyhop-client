@@ -7,7 +7,7 @@ body:
   - type: input
     id: environment
     attributes:
-      label: Client revision and operating system
+      label: Client version and system
     validations:
       required: true
   - type: textarea
@@ -19,5 +19,5 @@ body:
   - type: textarea
     id: diagnostics
     attributes:
-      label: Reviewed diagnostics and relevant logs
-      description: Export diagnostics from F10, remove private details, and attach them if useful.
+      label: Support report
+      description: F10 → Client → Support report → Export. Check it for anything private first.

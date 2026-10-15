@@ -1,32 +1,34 @@
 # Changelog
 
+## 0.2.0
+
+- **Discord Join.** On a public server, friends get a Join button on your Discord profile that opens the same server in their client. Private lobbies only with F10 → Discord → Include private lobbies, never in privacy mode. The invite code never appears in your status.
+- **Benchmark.** F10 → Performance → Benchmark measures 30 seconds of play and keeps the last 20 results with the settings they ran with.
+- With **Uncap the whole browser** on, the game now waits for the GPU before each frame, so frames can't pile up.
+- **A new settings window** in the game's own style: sections on the left, switches, a help line for the row under the pointer, and every change saved at once.
+- Discord reconnects only when its own settings change.
+
+Join, the benchmark and the GPU wait need the game update from 2026-10-15; with an older game they stay off.
+
 ## 0.1.1
 
-- Discord Rich Presence is on by default, and turned on once for settings saved by 0.1.0. Turn it off, or hide the map, in F10 → Discord & privacy; Privacy mode still hides everything.
-- Smoke runs never connect to Discord.
+- Discord presence is on by default, and turned on once for settings saved by 0.1.0. Turn it off or hide the map in F10; privacy mode still hides everything.
+- Smoke tests never connect to Discord.
 
 ## 0.1.0
 
-- Competitive no longer uncaps the whole browser, raises only the main process, or sets extra GPU flags; on a fast Windows machine that ran worse than Balanced. It now raises the browser, GPU, and game processes to Above normal on Windows. Frames past the refresh rate come from the game's Exceed monitor FPS setting. Saved Competitive settings migrate.
-- The browser-wide uncap is an experimental switch that no profile sets. The client reports it to the game as `browserUncapped`.
-- Added "Prefer the discrete GPU" (on by default) in place of the experimental GPU flag set. High priority became Above normal.
-- Content-cache hashing moved off the main process thread.
-- Replaced electron-updater with a signed release note: release builds check GitHub for an Ed25519-signed `bunnyhop-update.json` and show a notice. Nothing is downloaded or installed automatically.
-- Free unsigned packaging: per-user one-click Windows installer and portable zip, Apple silicon and Intel DMGs, x64 AppImage and `.deb`, all built from one Mac. Added `scripts/release.mjs` (key, signed manifest, checksums, draft release) and removed the inert signing helpers.
-- The smoke harness moved to `electron/smoke.mjs` and never runs in a release build.
-- Added install instructions, a free release process, and a roadmap.
+- Competitive no longer uncaps the whole browser; on a fast Windows machine that ran worse than Balanced. It raises the browser, GPU and game processes to Above normal on Windows instead. Saved Competitive settings move over.
+- The whole-browser uncap is an experimental switch no profile sets. The client tells the game about it as `browserUncapped`.
+- "Prefer the discrete GPU" (on by default) replaces the old experimental GPU flags. High priority became Above normal.
+- The map cache hashes files off the main thread.
+- A signed update notice replaces electron-updater. Nothing is downloaded or installed for you.
+- Free unsigned installers for Windows, macOS and Linux, all built from one Mac, and `scripts/release.mjs` for the key, the signed note, checksums and draft releases.
 
-- Added permanent, hash-verified map and shared-content caching with local reads across restarts.
-- Fixed Discord artwork forwarding through the sandbox preload.
+## Before 0.1.0
 
-- Added Discord map artwork with a Bunnyhop logo badge and privacy-aware logo fallback.
-
-- Adapted the dedicated Electron shell to Bunnyhop and retained browser-native game input.
-- Added Bunnyhop settings, display/rendering profiles, local diagnostics, screenshot export, and a bounded run-summary vault.
-- Added optional PB screenshots tied to the matching visible result card.
-- Added opt-in Bunnyhop Discord Rich Presence with local IPC, reconnect, map visibility, and privacy controls.
-- Allowed safe game downloads, including browser-generated `.bhr` replays, and validated map/server/replay deep links.
-- Added local native packaging and guarded release-preparation scripts.
-- Added repository branding; GitHub Actions is disabled and workflow files are removed.
-
-Releases are unsigned by design (docs/releases.md). There are no client latency measurements yet.
+- The Electron shell, adapted to Bunnyhop, keeping the game's browser input.
+- Settings with display and rendering profiles, diagnostics, screenshots and the run vault.
+- PB screenshots tied to the visible results screen.
+- Discord presence over local IPC, with map artwork, a logo badge, reconnects and privacy controls.
+- The hash-checked map cache.
+- Safe downloads, including `.bhr` replays, and checked map, server and replay links.

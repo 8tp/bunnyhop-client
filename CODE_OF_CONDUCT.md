@@ -1,7 +1,7 @@
 # Code of conduct
 
-Be direct, patient, and specific. Discuss the work, welcome corrections, give evidence for technical claims, and respect privacy.
+Be direct, patient and specific. Talk about the work, welcome corrections, back technical claims with evidence, and respect people's privacy.
 
-Harassment, threats, stalking, slurs, doxxing, and sustained disruption are not accepted in project spaces or when representing the project. Stop when a maintainer asks a discussion to cool down.
+Harassment, threats, stalking, slurs, doxxing and sustained disruption aren't accepted here or anywhere you represent the project. When a maintainer asks a discussion to cool down, stop.
 
-Arrange a private channel with a maintainer for conduct concerns. See [SECURITY.md](SECURITY.md) for the current reporting-channel limitation. Avoid posting private information in public. Maintainers may remove content, lock discussions, reject contributions, or restrict participation after considering context and repeated behavior. A dedicated reporting channel has not been established yet.
+Report conduct problems privately to a maintainer, for example through the bunnyhop.lol [Discord](https://discord.gg/bhoplol) staff. Maintainers may remove content, lock discussions, reject contributions or restrict participation, considering context and repeated behaviour.

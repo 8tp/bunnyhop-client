@@ -1,11 +1,11 @@
-# Security policy
+# Security
 
-There are no published releases or established response-time commitments yet. Reports should identify the source revision and operating system.
+Report vulnerabilities privately through GitHub: the repository's **Security** tab → **Report a vulnerability**. Please don't open a public issue.
 
-No verified private vulnerability-reporting channel has been established. Arrange a private channel with the maintainer before sending details, and keep them out of public issues. The package's noreply email is not a verified security inbox. If private vulnerability reporting is enabled when the repository becomes public, its advisory form can become the preferred route. A working private contact is required before public distribution.
+Worth reporting: escaping the renderer sandbox, IPC that accepts a sender it shouldn't, navigation or downloads outside the rules, vault paths that escape their folder, leaked credentials, and anything that gets around the signed update notice.
 
-Useful reports include renderer sandbox escapes, IPC sender-validation failures, unsafe navigation or downloads, local vault path escapes, credential disclosure, and update/signing bypasses. The Electron shell trusts only the game origins and its bundled settings page for their respective native operations. Discord access is local and presence-only.
+Include the client version, your system, the steps, and what an attacker gains. Leave out tokens, cookies, account details and private screenshots.
 
-For reproduction, include the affected revision, steps, observed impact, and a minimal proof when safe. Remove tokens, cookies, account details, and private screenshots. Game score-verification issues should be reported privately to the game's maintainers.
+Problems with the game itself, such as score verification or the website, go to the bunnyhop.lol staff privately, not here.
 
-Development builds never check for updates. Signed release builds must pass the gates in [release setup](docs/releases.md); unsigned artifacts must remain labelled developer builds.
+Only the latest release gets fixes. Development builds never check for updates; release builds accept only update notes signed with the release key ([releases](docs/releases.md)).
