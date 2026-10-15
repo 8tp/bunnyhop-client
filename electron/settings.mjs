@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 
 export const PROFILE_NAMES = Object.freeze(['competitive', 'balanced', 'compatibility', 'custom']);
 export const WINDOW_MODES = Object.freeze(['fullscreen', 'kiosk', 'windowed']);
@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   capturePersonalBests: false,
   showDiagnosticsOnStart: false,
   updates: true,
-  discordRichPresence: false,
+  discordRichPresence: true,
   discordApplicationId: BUNNYHOP_DISCORD_APPLICATION_ID,
   discordShowMap: true,
   privacyMode: false,
@@ -75,11 +75,19 @@ export const PRESETS = Object.freeze({
    discrete GPU preference. */
 function migrate(input) {
   if (!input || typeof input !== 'object' || Number(input.version) >= SETTINGS_VERSION) return input;
-  const next = { ...input };
-  if (next.processPriority === 'high') next.processPriority = 'above-normal';
-  if (next.gpuTweaks === true) next.preferDiscreteGpu = true;
-  delete next.gpuTweaks;
-  return next.profile === 'competitive' ? { ...next, ...PRESETS.competitive } : next;
+  const version = Number(input.version) || 1;
+  let next = { ...input };
+  if (version < 2) {
+    if (next.processPriority === 'high') next.processPriority = 'above-normal';
+    if (next.gpuTweaks === true) next.preferDiscreteGpu = true;
+    delete next.gpuTweaks;
+    if (next.profile === 'competitive') next = { ...next, ...PRESETS.competitive };
+  }
+  /* Discord presence became on by default in 0.1.1. Earlier files saved the
+     old default (off) on every window close, so it is turned on once.
+     Privacy mode still hides it. */
+  if (version < 3) next.discordRichPresence = true;
+  return next;
 }
 
 function oneOf(value, choices, fallback) {

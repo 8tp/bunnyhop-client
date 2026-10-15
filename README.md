@@ -23,7 +23,7 @@ A dedicated desktop home for [bunnyhop.lol](https://bunnyhop.lol). Keep your gam
 
 | Make it yours | Keep your best | Stay connected |
 | --- | --- | --- |
-| Display profiles, fullscreen, and native settings | Local run history, screenshots, and optional PB captures | Opt-in Discord Rich Presence and Bunnyhop deep links |
+| Display profiles, fullscreen, and native settings | Local run history, screenshots, and optional PB captures | Discord Rich Presence and Bunnyhop deep links |
 
 > **Preview** · Releases are free, unsigned builds published on [GitHub Releases](https://github.com/8tp/bunnyhop-client/releases). The game itself always plays in any browser at [bunnyhop.lol](https://bunnyhop.lol); the client adds a dedicated window, Discord presence, and a local run vault. GitHub Actions is disabled; builds and checks run locally.
 
@@ -61,7 +61,7 @@ On macOS, every unsigned build has a new ad hoc signature, so a rebuilt or updat
 - No profile uncaps the browser. Frames past the refresh rate come from the game's own Graphics settings (Exceed monitor FPS and the low-latency canvas), which pace them on the GPU. A browser-wide uncap (`--disable-frame-rate-limit --disable-gpu-vsync`) remains as an experimental switch; it also uncaps the page and compositor with nothing holding frames back, and ran worse than Balanced on a fast Windows machine. Settings saved by an older Competitive profile move to the current one.
 - Settings include local diagnostics and JSON support-report export. Diagnostics describe the detected environment, not measured input latency.
 - The local run vault stores bounded completed-run summaries. Optional PB screenshots wait for a matching result-card signal from the game and are cancelled when the result is left.
-- Opt-in Discord Rich Presence connects to Discord desktop over local IPC, retries when Discord starts late or restarts, and uses Bunnyhop application ID `1556467060916224040`. Map display has its own switch. Public map thumbnails appear with a small Bunnyhop logo badge; menus, missing or unsupported thumbnails, and hidden maps use the logo alone. Privacy mode disables presence; no room identifier, join secret, or arbitrary renderer URL is sent. Artwork is limited to the public Bunnyhop logo and validated first-party thumbnail paths. The button points to `https://bunnyhop.lol`.
+- Discord Rich Presence is on by default (turn it off in F10 → Discord & privacy). It connects to Discord desktop over local IPC, retries when Discord starts late or restarts, and uses Bunnyhop application ID `1556467060916224040`. Map display has its own switch. Public map thumbnails appear with a small Bunnyhop logo badge; menus, missing or unsupported thumbnails, and hidden maps use the logo alone. Privacy mode disables presence; no room identifier, join secret, or arbitrary renderer URL is sent. Artwork is limited to the public Bunnyhop logo and validated first-party thumbnail paths. The button points to `https://bunnyhop.lol`.
 - Game-generated `.bhr` replay, image, JSON, text, CSV, and video downloads use a save dialog. Replay import/export stays in the game's browser UI; `.bhr` has no OS file association.
 - Packaged builds register `bunnyhop://` links for maps, servers, and replays.
 

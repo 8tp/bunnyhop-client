@@ -22,7 +22,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow }) {
       const bridge = await win.webContents.executeJavaScript(`(async()=>{
         if (window.bunnyhopClient?.version !== 1) throw new Error('missing game bridge');
         const settings=await window.bunnyhopClient.getSettings();
-        if (settings.discordRichPresence !== false) throw new Error('unexpected public settings');
+        if (settings.discordRichPresence !== true || settings.privacyMode !== false) throw new Error('unexpected public settings');
         const cacheBytes = new Uint8Array([1,2,3]);
         const cacheHash = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81';
         if (!await window.bunnyhopClient.cacheContent(cacheHash, cacheBytes)) throw new Error('cache write failed');

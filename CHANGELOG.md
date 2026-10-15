@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
+
+- Discord Rich Presence is on by default, and turned on once for settings saved by 0.1.0. Turn it off, or hide the map, in F10 → Discord & privacy; Privacy mode still hides everything.
+- Smoke runs never connect to Discord.
+
+## 0.1.0
 
 - Competitive no longer uncaps the whole browser, raises only the main process, or sets extra GPU flags; on a fast Windows machine that ran worse than Balanced. It now raises the browser, GPU, and game processes to Above normal on Windows. Frames past the refresh rate come from the game's Exceed monitor FPS setting. Saved Competitive settings migrate.
 - The browser-wide uncap is an experimental switch that no profile sets. The client reports it to the game as `browserUncapped`.
@@ -24,4 +29,4 @@
 - Added local native packaging and guarded release-preparation scripts.
 - Added repository branding; GitHub Actions is disabled and workflow files are removed.
 
-Package version `0.1.0` has not been published yet. Releases are unsigned by design (docs/releases.md). There are no client latency measurements yet.
+Releases are unsigned by design (docs/releases.md). There are no client latency measurements yet.
