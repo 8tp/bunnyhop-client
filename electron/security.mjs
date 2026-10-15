@@ -7,9 +7,6 @@ export const SETTINGS_ASSET_TYPES = Object.freeze(Object.assign(Object.create(nu
   'index.html': 'text/html; charset=utf-8',
   'settings.css': 'text/css; charset=utf-8',
   'settings.js': 'text/javascript; charset=utf-8',
-  'fonts/Archivo-var.woff2': 'font/woff2',
-  'fonts/AtkinsonNext-var.woff2': 'font/woff2',
-  'fonts/AtkinsonMono-var.woff2': 'font/woff2',
 }));
 
 export function settingsAssetName(value) {
