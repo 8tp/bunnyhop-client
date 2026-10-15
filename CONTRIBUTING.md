@@ -1,13 +1,11 @@
 # Contributing
 
-Use Node.js 22 or newer. Install with `npm ci`, then run `npm run verify` and `npm run electron:smoke` on a graphical desktop. For packaging changes, build with `npm run electron:pack` and run `npm run electron:packaged-smoke`. Use the unsigned overrides documented in [README.md](README.md) when building macOS development installers.
+Setup, scripts and the layout are in [development](docs/development.md). In short: Node.js 22 or newer, `npm ci`, then `npm run verify` and `npm run electron:smoke` before you open a pull request. Anything that touches packaging also needs `npm run electron:pack` and `npm run electron:packaged-smoke`.
 
-Keep changes focused. Explain the behavior before and after, the checks run, and which operating systems were actually tested. Tests should cover meaningful failure paths. Performance claims need a reproducible measurement and the hardware/software conditions.
+In the pull request, say what changes for the player, which checks you ran, and which systems you actually tried it on. Add a screenshot for anything visible. Claims about performance need a measurement and the hardware it ran on; the F10 benchmark is a good start.
 
-`electron/policy.mjs` owns origins, navigation policy, and Chromium flags. Keep remote game data bounded, validate IPC senders, and preserve renderer sandboxing. Discord stays optional and presence-only. Native integration must not alter input, physics, replay semantics, or server verification.
+Keep changes focused. The client must never change gameplay: input, timing, physics, replays and verification belong to the game. A change to the bridge needs the game project too; keep both sides working without the other.
 
-The matching game hooks are maintained in the separate Bunnyhop web project. Coordinate bridge-contract changes across both projects and preserve behavior when the native bridge is absent.
+GitHub Actions is off, so checks run on your machine. Never commit keys, tokens, player data or built installers.
 
-Do not commit certificates, tokens, player data, or generated binaries. Signing credentials belong in reviewed release environments. See [release setup](docs/releases.md) for the build gates. GitHub Actions is disabled. Run checks locally and include the results in your pull request.
-
-Contributions use the existing [MIT license](LICENSE) and [code of conduct](CODE_OF_CONDUCT.md).
+Contributions are under the [MIT license](LICENSE) and the [code of conduct](CODE_OF_CONDUCT.md).
