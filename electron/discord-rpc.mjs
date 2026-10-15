@@ -74,7 +74,40 @@ function mapArtwork(value) {
   return url.length <= 256 ? url : null;
 }
 
-/** Renderer data fills only public map/style labels; URLs and room identifiers are ignored. */
+const SERVER_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const LOBBY_ID = /^p-[a-z2-7]{10}$/;
+const JOIN_SECRET = /^bh1:(s|l):([a-z0-9-]{1,32})$/;
+
+/* Discord Join. The room goes into the activity only when the player allows
+   it: public servers with discordJoin, private lobbies only with
+   discordJoinLobbies too, never in privacy mode. The secret reaches only the
+   friend who presses Join; the party id everyone can see is a hash, so it
+   never shows a lobby's invite code. */
+export function joinableRoom(raw, settings = {}) {
+  const room = raw?.room;
+  if (!room || typeof room !== 'object' || settings.privacyMode || settings.discordJoin !== true) return null;
+  const id = String(room.id ?? '');
+  const lobby = room.lobby === true;
+  if (lobby ? !LOBBY_ID.test(id) || settings.discordJoinLobbies !== true : !SERVER_ID.test(id) || LOBBY_ID.test(id)) return null;
+  const max = Number.isInteger(room.max) && room.max > 0 && room.max <= 64 ? room.max : null;
+  const players = Number.isInteger(room.players) ? Math.min(Math.max(room.players, 1), max ?? 64) : 1;
+  return { id, lobby, players, max };
+}
+
+export function joinSecret(room) {
+  return room.lobby ? `bh1:l:${room.id.slice(2)}` : `bh1:s:${room.id}`;
+}
+
+/** The game URL a Join secret opens, or null. Secrets come from Discord, so they are checked like any other link. */
+export function joinTarget(secret) {
+  const match = JOIN_SECRET.exec(String(secret ?? ''));
+  if (!match) return null;
+  const [, kind, id] = match;
+  if (kind === 'l') return /^[a-z2-7]{10}$/.test(id) ? `https://bunnyhop.lol/?lobby=${id}` : null;
+  return SERVER_ID.test(id) && !LOBBY_ID.test(id) ? `https://bunnyhop.lol/?server=${id}` : null;
+}
+
+/** Renderer data fills only public map/style labels; URLs are ignored, and a room only as Discord Join allows. */
 export function buildPresenceActivity(raw = {}, settings = {}) {
   const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
   raw = record(raw) ? raw : {};
@@ -94,6 +127,7 @@ export function buildPresenceActivity(raw = {}, settings = {}) {
   const modeLabel = { solo: 'Solo', multiplayer: 'Multiplayer', practice: 'Practice', replay: 'Replay' }[mode];
   const style = !settings.privacyMode && kind !== 'menu' && typeof raw.style === 'string' ? cleanText(raw.style, 40) : '';
   const state = kind === 'menu' ? 'Bunnyhop' : `${modeLabel}${style ? ` · ${style}` : ''}`;
+  const room = kind === 'menu' || kind === 'replay' ? null : joinableRoom(raw, settings);
   const now = Math.floor(Date.now() / 1000);
   const startedAt = Number.isFinite(raw.startedAt) && raw.startedAt >= 946684800 && raw.startedAt <= now + 60
     ? Math.floor(raw.startedAt) : now;
@@ -111,9 +145,22 @@ export function buildPresenceActivity(raw = {}, settings = {}) {
       large_text: 'Bunnyhop',
     },
     timestamps: { start: startedAt },
-    buttons: [{ label: 'Play Bunnyhop', url: 'https://bunnyhop.lol' }],
+    /* Discord takes either buttons or a Join secret, not both. */
+    ...(room ? {
+      party: { id: crypto.createHash('sha256').update(`bunnyhop-room:${room.id}`).digest('hex').slice(0, 32), ...(room.max ? { size: [room.players, room.max] } : {}) },
+      secrets: { join: joinSecret(room) },
+    } : { buttons: PLAY_BUTTON }),
     instance: false,
   };
+}
+
+const PLAY_BUTTON = Object.freeze([{ label: 'Play Bunnyhop', url: 'https://bunnyhop.lol' }]);
+
+/** The same activity without Discord Join (party and secret), with the Play button back. */
+export function withoutJoin(activity) {
+  if (!activity?.secrets) return activity;
+  const { party: _party, secrets: _secrets, ...rest } = activity;
+  return { ...rest, buttons: PLAY_BUTTON };
 }
 
 function openSocket(candidate, connect = net.createConnection, onSocket = () => {}) {
@@ -158,6 +205,10 @@ export class DiscordRpcClient extends EventEmitter {
     this.lastActivityAt = -Infinity;
     this.lastActivityJson = undefined;
     this.rateLimitMs = options.rateLimitMs ?? 1_000;
+    /** Ask Discord for ACTIVITY_JOIN: a friend pressed Join on this player's activity. */
+    this.join = options.join === true;
+    /** Discord refused an activity with a Join secret: send activities without one for this session. */
+    this.joinRejected = false;
   }
 
   async start() {
@@ -216,7 +267,7 @@ export class DiscordRpcClient extends EventEmitter {
 
   _sendActivity() {
     if (!this.ready || this.stopped) return;
-    const activity = this.pendingActivity;
+    const activity = this.joinRejected ? withoutJoin(this.pendingActivity) : this.pendingActivity;
     const serialized = JSON.stringify(activity);
     if (serialized === this.lastActivityJson) return;
     this.lastActivityJson = serialized;
@@ -300,6 +351,18 @@ export class DiscordRpcClient extends EventEmitter {
       return;
     }
     if (op !== OP_FRAME) return;
+    if (payload?.evt === 'ERROR' && payload?.cmd === 'SUBSCRIBE') {
+      // No Join on this Discord: presence still works.
+      this.emit('join-unavailable', cleanText(payload?.data?.message || 'Discord refused ACTIVITY_JOIN', 160));
+      return;
+    }
+    if (payload?.evt === 'ERROR' && payload?.cmd === 'SET_ACTIVITY' && this.pendingActivity?.secrets && !this.joinRejected) {
+      this.joinRejected = true;
+      this.emit('join-unavailable', cleanText(payload?.data?.message || 'Discord refused the Join secret', 160));
+      this.lastActivityJson = undefined;
+      this._sendActivity();
+      return;
+    }
     if (payload?.evt === 'ERROR') {
       this.emit('error', new Error(cleanText(payload?.data?.message || 'Discord rejected RPC activity', 160)));
       return;
@@ -310,6 +373,12 @@ export class DiscordRpcClient extends EventEmitter {
       this.ready = true;
       this.emit('status', { state: 'ready' });
       this.setActivity(this.pendingActivity);
+      if (this.join) this._write(OP_FRAME, { cmd: 'SUBSCRIBE', evt: 'ACTIVITY_JOIN', args: {}, nonce: crypto.randomUUID() });
+      return;
+    }
+    if (payload?.evt === 'ACTIVITY_JOIN' && payload?.cmd === 'DISPATCH') {
+      const target = joinTarget(payload?.data?.secret);
+      if (target) this.emit('join', target);
     }
   }
 
@@ -325,7 +394,7 @@ export class DiscordPresence extends EventEmitter {
     super();
     if (!/^\d{17,20}$/.test(String(applicationId))) throw new Error('Discord Application ID is invalid');
     this.applicationId = String(applicationId);
-    this.createClient = options.createClient ?? (() => new DiscordRpcClient(this.applicationId));
+    this.createClient = options.createClient ?? (() => new DiscordRpcClient(this.applicationId, { join: options.join === true }));
     this.schedule = options.schedule ?? setTimeout;
     this.cancel = options.cancel ?? clearTimeout;
     this.retryDelays = options.retryDelays ?? DEFAULT_RETRY_DELAYS;
@@ -378,6 +447,12 @@ export class DiscordPresence extends EventEmitter {
       if (this.client !== client) return;
       this.emit('error', error);
       this._lost(client, error);
+    });
+    client.on('join', (target) => {
+      if (this.client === client) this.emit('join', target);
+    });
+    client.on('join-unavailable', (message) => {
+      if (this.client === client) this.emit('join-unavailable', message);
     });
     try {
       await client.start();

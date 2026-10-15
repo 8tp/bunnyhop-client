@@ -29,5 +29,18 @@ contextBridge.exposeInMainWorld('bunnyhopSettings', Object.freeze({
     return () => ipcRenderer.removeListener('update:status', wrapped);
   },
   openUpdate: () => ipcRenderer.invoke('settings:open-update'),
+  startBenchmark: () => ipcRenderer.invoke('settings:benchmark-start'),
+  onBenchmarkState: (listener) => {
+    if (typeof listener !== 'function') return () => {};
+    const wrapped = (_event, value) => listener(value);
+    ipcRenderer.on('benchmark:state', wrapped);
+    return () => ipcRenderer.removeListener('benchmark:state', wrapped);
+  },
+  onBenchmarkResults: (listener) => {
+    if (typeof listener !== 'function') return () => {};
+    const wrapped = (_event, value) => listener(value);
+    ipcRenderer.on('benchmark:results', wrapped);
+    return () => ipcRenderer.removeListener('benchmark:results', wrapped);
+  },
   relaunch: () => ipcRenderer.invoke('settings:relaunch'),
 }));

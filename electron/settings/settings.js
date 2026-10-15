@@ -33,6 +33,10 @@ function setSeg(name, value) {
     button.setAttribute('aria-checked', String(on));
   }
 }
+function dependsOn(name, off) {
+  form.elements[name].disabled = off;
+  form.elements[name].closest('.set-row').classList.toggle('off', off);
+}
 function fill(value, restart = false) {
   settings = value;
   for (const el of form.elements) {
@@ -41,12 +45,12 @@ function fill(value, restart = false) {
     else el.value = value[el.name];
   }
   for (const seg of form.querySelectorAll('[data-seg]')) setSeg(seg.dataset.seg, value[seg.dataset.seg]);
-  /* The map switch means nothing while presence is off or hidden. */
-  const mapOff = !value.discordRichPresence || value.privacyMode;
-  form.elements.discordShowMap.disabled = mapOff;
-  form.elements.discordShowMap.closest('.set-row').classList.toggle('off', mapOff);
-  form.elements.capturePersonalBests.disabled = !value.localRunVault;
-  form.elements.capturePersonalBests.closest('.set-row').classList.toggle('off', !value.localRunVault);
+  /* Switches that mean nothing while the one above them is off. */
+  const presenceOff = !value.discordRichPresence || value.privacyMode;
+  dependsOn('discordShowMap', presenceOff);
+  dependsOn('discordJoin', presenceOff);
+  dependsOn('discordJoinLobbies', presenceOff || !value.discordJoin);
+  dependsOn('capturePersonalBests', !value.localRunVault);
   $('#restart-bar').hidden = !restart;
 }
 function read() {
@@ -228,6 +232,53 @@ async function refreshRuns() {
   }
 }
 
+/* ---- benchmark */
+const PROFILE_NAMES = { balanced: 'Balanced', competitive: 'Competitive', compatibility: 'Compatibility', custom: 'Custom' };
+function benchState(value) {
+  const button = $('#bench-start');
+  button.disabled = !value?.ready || value?.running;
+  button.textContent = value?.running ? 'Measuring' : 'Start';
+  $('#bench-state').textContent = value?.running ? 'Keep playing until the game says it is done' : value?.ready ? '' : 'Open a map in the game first';
+}
+function benchResults(results) {
+  const root = $('#bench');
+  root.replaceChildren();
+  for (const r of (Array.isArray(results) ? results : []).slice(0, 5)) {
+    const row = document.createElement('li');
+    const left = document.createElement('span');
+    left.className = 'run-map';
+    const name = document.createElement('b');
+    name.textContent = r.map || 'Unknown map';
+    const meta = document.createElement('span');
+    const g = r.graphics || {};
+    const l = r.launch || {};
+    meta.textContent = [
+      PROFILE_NAMES[l.profile] || '',
+      g.width && g.height ? `${g.width}×${g.height}` : '',
+      l.refreshHz ? `${l.refreshHz} Hz` : '',
+      g.potato ? 'Potato' : '',
+      g.uncapped ? 'Exceed monitor FPS' : '',
+      l.uncap ? 'Browser uncapped' : '',
+      `${r.hitches} ${r.hitches === 1 ? 'hitch' : 'hitches'}`,
+      when(r.savedAt),
+    ].filter(Boolean).join(', ');
+    left.append(name, meta);
+    const right = document.createElement('span');
+    right.className = 'run-time';
+    const fps = r.interval?.avg ? Math.round(1000 / r.interval.avg) : 0;
+    const detail = document.createElement('small');
+    detail.textContent = `p50 ${(r.interval?.p50 ?? 0).toFixed(2)} ms, p99 ${(r.interval?.p99 ?? 0).toFixed(2)} ms`;
+    right.append(`${fps} FPS`, detail);
+    row.append(left, right);
+    root.append(row);
+  }
+}
+$('#bench-start').onclick = async () => {
+  try { await api.startBenchmark(); } catch (error) { show(error.message.replace(/^.*Error: /, ''), 'bad'); }
+};
+api.onBenchmarkState(benchState);
+api.onBenchmarkResults((results) => { benchResults(results); show('Frame times saved.'); });
+
 /* ---- viewer */
 const viewer = $('#viewer');
 function openViewer(title, { image = null, text = null }) {
@@ -281,6 +332,8 @@ api.onUpdateStatus(update);
     fill(boot.settings, boot.requiresRestart);
     discord(boot.discord);
     update(boot.update);
+    benchState(boot.benchmark);
+    benchResults(boot.benchmark?.results);
     sizeTail();
     await refreshRuns();
   } catch (error) { show(`Settings unavailable: ${error.message}`, 'bad'); }

@@ -43,10 +43,11 @@ test('invalid keys and unavailable storage are nonfatal misses', async t => {
 
 test('sandbox bridge forwards cache bytes and Discord artwork through narrow channels', async () => {
   const calls = [];
+  const listeners = [];
   let bridge;
   vm.runInNewContext(readFileSync(new URL('../game-preload.cjs', import.meta.url), 'utf8'), {
     require: () => ({ contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } },
-      ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve(null); }, send: (...args) => calls.push(args) } }),
+      ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve(null); }, send: (...args) => calls.push(args), on: (...args) => listeners.push(args) } }),
   });
   const bytes = new Uint8Array([1,2,3]);
   await bridge.getCachedContent(hash(bytes));
@@ -56,4 +57,18 @@ test('sandbox bridge forwards cache bytes and Discord artwork through narrow cha
   assert.equal(calls[1][0], 'client:cache-put');
   assert.equal(calls[1][2], bytes);
   assert.equal(calls[2][1].mapImage, '/thumbs/map.webp');
+  assert.equal(calls[2][1].room, null);
+  bridge.setPresence({ kind: 'playing', room: { id: 'eu-1\u0007', lobby: 'yes', players: 3, max: 12, secret: 'x' } });
+  assert.deepEqual({ ...calls[3][1].room }, { id: 'eu-1', lobby: false, players: 3, max: 12 });
+
+  // The benchmark: registering tells the shell; its request reaches the game; results go back on their own channel.
+  const requests = [];
+  bridge.onBenchmark((r) => requests.push(r));
+  assert.equal(calls[4][0], 'client:benchmark-ready');
+  const [channel, deliver] = listeners.find(([name]) => name === 'client:benchmark');
+  assert.equal(channel, 'client:benchmark');
+  deliver({}, { seconds: 30 });
+  assert.equal(requests[0].seconds, 30);
+  bridge.benchmarkResult({ frames: 10 });
+  assert.equal(calls[5][0], 'client:benchmark-result');
 });
