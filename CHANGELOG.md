@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Electron 44.9.3 (Chromium 152.0.7977.167, Node.js 24.22.0) instead of 44.0.0, with the Chromium, V8 and Node.js security fixes released since. No other changes.
+
 ## 0.2.0
 
 - **Discord Join.** On a public server, friends get a Join button on your Discord profile that opens the same server in their client. Private lobbies only with F10 → Discord → Include private lobbies, never in privacy mode. The invite code never appears in your status.
