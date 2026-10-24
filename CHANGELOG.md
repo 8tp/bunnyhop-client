@@ -2,7 +2,7 @@
 
 ## 0.2.1
 
-- Electron 44.9.3 (Chromium 152.0.7977.167, Node.js 24.22.0) instead of 44.0.0, with the Chromium, V8 and Node.js security fixes released since. No other changes.
+- Electron 45.0.0 (Chromium 156.0.8078.48, Node.js 24.22.0) instead of 44.0.0: four Chromium versions newer, the same Chromium as current Chrome stable, with every security fix released since. No other changes.
 
 ## 0.2.0
 
