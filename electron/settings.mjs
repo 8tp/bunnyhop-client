@@ -1,4 +1,5 @@
 import { sanitizeWindowBounds } from './window-state.mjs';
+import { sanitizeCustomCssPath } from './custom-css.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,6 +35,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   discordJoin: true,
   discordJoinLobbies: false,
   privacyMode: false,
+  /* A local .css file the game restyles itself with (custom-css.mjs). */
+  customCssPath: null,
 });
 
 /* No profile uncaps the browser (policy.mjs buildFlags): frames past the
@@ -132,6 +135,7 @@ export function sanitizeSettings(raw = {}) {
     discordJoin: bool(input.discordJoin, base.discordJoin),
     discordJoinLobbies: bool(input.discordJoinLobbies, base.discordJoinLobbies),
     privacyMode: bool(input.privacyMode, base.privacyMode),
+    customCssPath: sanitizeCustomCssPath(input.customCssPath),
   };
 }
 

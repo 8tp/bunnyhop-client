@@ -164,6 +164,17 @@ function update(value) {
   $('#open-update').hidden = value?.state !== 'available';
 }
 
+/* ---- custom CSS: the file's name under the label, its full path on hover */
+function customCss(value) {
+  const hint = $('#css-file');
+  const error = value?.error || '';
+  hint.textContent = !value?.name ? 'None' : error ? `${value.name}, ${error[0].toLowerCase()}${error.slice(1)}` : value.name;
+  hint.dataset.tone = error ? 'bad' : '';
+  hint.title = value?.path || '';
+  $('#css-reveal').hidden = !value?.path;
+  $('#css-clear').hidden = !value?.path;
+}
+
 /* ---- recent runs */
 const STYLE_NAMES = { normal: '', default: '' };
 function runTime(ms) {
@@ -300,11 +311,16 @@ const ACTIONS = {
   'export-report': [() => api.exportReport(), 'Report saved.'],
   'open-update': [() => api.openUpdate(), null],
   relaunch: [() => api.relaunch(), null],
+  'css-choose': [() => api.chooseCustomCss(), null],
+  'css-new': [() => api.newCustomCss(), null],
+  'css-clear': [() => api.clearCustomCss(), null],
+  'css-reveal': [() => api.revealCustomCss(), null],
 };
 for (const [id, [action, done]] of Object.entries(ACTIONS)) {
   $(`#${id}`).onclick = async () => {
     try {
       const result = await action();
+      if (result?.customCss) customCss(result.customCss);
       if (result?.error) show(result.error, 'bad');
       else if (result?.saved !== false && done) show(done);
     } catch (error) { show(error.message, 'bad'); }
@@ -318,6 +334,7 @@ $('#diagnostics').onclick = async () => {
 api.onVaultChanged(() => refreshRuns().catch(error => show(error.message, 'bad')));
 api.onDiscordStatus(discord);
 api.onUpdateStatus(update);
+api.onCustomCssStatus(customCss);
 
 (async () => {
   try {
@@ -332,6 +349,7 @@ api.onUpdateStatus(update);
     fill(boot.settings, boot.requiresRestart);
     discord(boot.discord);
     update(boot.update);
+    customCss(boot.customCss);
     benchState(boot.benchmark);
     benchResults(boot.benchmark?.results);
     sizeTail();

@@ -68,6 +68,12 @@ The vault keeps at most 5,000 summaries and 1 GB of screenshots, removing the ol
 
 Run it after each change you want to compare. The last 20 results are kept.
 
+## Custom CSS
+
+**F10 → Client → Custom CSS** restyles the game's menus and HUD with a `.css` file of your own. **Choose…** picks a file, **New…** saves a starter file and uses it. The game loads the file and reloads it each time you save, so you can keep it open in an editor and watch your changes. **Stop using** turns it off.
+
+The client hands the game the file's text and name and nothing else: no images, no other files, never the folder it's in. The game checks the CSS itself before applying it. Files over 256 KB are refused. If the file is moved or deleted, the game goes back to its own look until it comes back.
+
 ## Map cache
 
 Maps and their shared textures, models and sounds are kept on disk after the first download, so later loads, even after a restart, read them from there. Every file is checked against its SHA-256 hash when it's saved and again when it's read; a damaged file is thrown away and downloaded again.
