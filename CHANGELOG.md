@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 - **Custom CSS.** F10 → Client → Custom CSS picks a `.css` file on your computer (or saves a starter file with New…). The game restyles itself with it and reloads it every time you save, so you can edit it in VS Code and watch the change. Only the file's text and name reach the game; files over 256 KB are refused. Needs the game's Custom CSS setting.
 
