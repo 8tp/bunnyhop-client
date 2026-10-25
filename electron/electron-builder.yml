@@ -32,6 +32,7 @@ files:
   - electron/policy.mjs
   - electron/settings.mjs
   - electron/window-state.mjs
+  - electron/custom-css.mjs
   - package.json
 asar: true
 afterPack: electron/after-pack.cjs
