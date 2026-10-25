@@ -21,7 +21,7 @@ On macOS, every unsigned build gets a new ad hoc signature, so a rebuilt app may
 | `npm run check` | Syntax-check every script |
 | `npm test` | Unit tests, including a fake Discord IPC server |
 | `npm run verify` | Both of the above |
-| `npm run electron:smoke` | Launch the real app against a fixture game page and check the bridge, vault, settings window and benchmark round trip |
+| `npm run electron:smoke` | Launch the real app against a fixture game page and check the bridge, vault, custom CSS, settings window and benchmark round trip |
 | `npm run electron:pack` | Build the unpacked app into `dist/electron` |
 | `npm run electron:packaged-smoke` | The smoke test against that packaged build |
 | `npm run electron:gpu` | Print what Chromium reports about the GPU |
@@ -46,6 +46,7 @@ Everything lives in `electron/`.
 | `run-vault.mjs` | Run summaries and PB screenshots |
 | `benchmark.mjs` | Benchmark results and their store |
 | `content-cache.mjs` | The hash-checked map and asset cache |
+| `custom-css.mjs` | Reading and watching the custom CSS file |
 | `diagnostics.mjs` | Displays, GPU and the support report |
 | `update-check.mjs` | The signed update notice |
 | `process-priority.mjs` | Windows process priority |
@@ -65,6 +66,7 @@ The game's side lives in the separate bunnyhop.lol project (`apps/web/src/client
 | `resultSettled(id)` | game → client | The results screen has painted; a PB screenshot can be taken |
 | `getCachedContent(sha256)`, `cacheContent(sha256, bytes)` | both | The map cache |
 | `onBenchmark(listener)`, `benchmarkResult(result)` | both | F10's benchmark |
+| `onCustomCss(listener)` | client → game | The custom CSS file as `{ name, css }`, or `null`; sent on registration and on every save |
 | `openSettings()`, `setFullscreen(on)` | game → client | Open F10, toggle fullscreen |
 
 The main process accepts these only from the top frame of the main game window on a bunnyhop.lol origin, and it bounds and validates every value. A change to the bridge needs both projects: keep the client working against today's game, and the game working without the client.

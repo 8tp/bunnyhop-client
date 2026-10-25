@@ -42,5 +42,15 @@ contextBridge.exposeInMainWorld('bunnyhopSettings', Object.freeze({
     ipcRenderer.on('benchmark:results', wrapped);
     return () => ipcRenderer.removeListener('benchmark:results', wrapped);
   },
+  chooseCustomCss: () => ipcRenderer.invoke('settings:custom-css-choose'),
+  newCustomCss: () => ipcRenderer.invoke('settings:custom-css-new'),
+  clearCustomCss: () => ipcRenderer.invoke('settings:custom-css-clear'),
+  revealCustomCss: () => ipcRenderer.invoke('settings:custom-css-reveal'),
+  onCustomCssStatus: (listener) => {
+    if (typeof listener !== 'function') return () => {};
+    const wrapped = (_event, value) => listener(value);
+    ipcRenderer.on('custom-css:status', wrapped);
+    return () => ipcRenderer.removeListener('custom-css:status', wrapped);
+  },
   relaunch: () => ipcRenderer.invoke('settings:relaunch'),
 }));

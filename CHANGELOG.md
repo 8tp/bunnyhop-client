@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Custom CSS.** F10 → Client → Custom CSS picks a `.css` file on your computer (or saves a starter file with New…). The game restyles itself with it and reloads it every time you save, so you can edit it in VS Code and watch the change. Only the file's text and name reach the game; files over 256 KB are refused. Needs the game's Custom CSS setting.
+
 ## 0.2.1
 
 - Electron 45.0.0 (Chromium 156.0.8078.48, Node.js 24.22.0) instead of 44.0.0: four Chromium versions newer, the same Chromium as current Chrome stable, with every security fix released since. No other changes.

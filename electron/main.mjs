@@ -11,7 +11,7 @@ import {
   session,
   shell,
 } from 'electron';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,7 @@ import { BENCHMARK_SECONDS, BenchmarkStore, sanitizeBenchmark } from './benchmar
 import { applyPriority } from './process-priority.mjs';
 import { checkForUpdate, isReleasePage } from './update-check.mjs';
 import { installSmokeFixture, runSmoke } from './smoke.mjs';
+import { CUSTOM_CSS_STARTER, CustomCssWatcher, customCssName, sanitizeCustomCssPath } from './custom-css.mjs';
 
 /* Only release builds (npm run release:build) carry bunnyhopReleaseBuild in
    their packaged package.json. They check for new versions and never run
@@ -156,6 +157,16 @@ let updateStatus = { state: 'disabled' };
 let benchmarkReady = false;
 let benchmarkRunning = false;
 let notifiedUpdate = null;
+/* The game asks for custom CSS (game-preload onCustomCss) on every page
+   load; a navigation forgets it, and nothing is sent until it asks. */
+let customCssReady = false;
+const customCss = new CustomCssWatcher({
+  onChange: ({ error }) => {
+    if (error) console.warn('[client] custom CSS unavailable:', error);
+    sendCustomCss();
+    settingsWindow?.webContents.send('custom-css:status', customCssStatus());
+  },
+});
 const resultCapture = new PersonalBestCapture({
   capture: async () => {
     if (!gameWindow || gameWindow.isDestroyed()) return null;
@@ -283,7 +294,7 @@ function createGameWindow() {
   };
   win.on('close',rememberWindow);
   win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); setBenchmark(false, false); }
+    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); setBenchmark(false, false); customCssReady = false; }
   });
   if (smoke) runSmoke({ app, win, mode: smoke, createSettingsWindow });
   win.webContents.on('did-fail-load', (_event, code, description, url, mainFrame) => {
@@ -577,7 +588,9 @@ function queuePresence(raw, immediate = false) {
 }
 
 async function diagnostics() {
-  const report = await collectDiagnostics({ app, screen, settings: currentSettings });
+  /* The CSS file's name only: a full path would carry the account name. */
+  const settings = { ...currentSettings, customCssPath: currentSettings.customCssPath ? customCssName(currentSettings.customCssPath) : null };
+  const report = await collectDiagnostics({ app, screen, settings });
   return { ...report, discord: discordStatus, requiresRestart: needsRestart() };
 }
 
@@ -648,6 +661,69 @@ function saveBenchmark(raw) {
   settingsWindow?.webContents.send('benchmark:results', benchmarks.add(result));
 }
 
+/* Only the game window on a game origin gets the text, and only the text and
+   the base name: the path stays in the main process and the settings window. */
+function sendCustomCss() {
+  if (!customCssReady || !gameWindow || gameWindow.isDestroyed() || !isGameUrl(gameWindow.webContents.getURL())) return;
+  gameWindow.webContents.send('client:custom-css', customCss.value);
+}
+
+function customCssStatus() {
+  const file = currentSettings.customCssPath;
+  return { name: file ? customCssName(file) : '', path: file || '', error: file ? customCss.error : null };
+}
+
+function setCustomCssPath(file) {
+  currentSettings = withRuntimeOverrides(saveSettings(settingsFile, { ...currentSettings, customCssPath: file }));
+  customCss.watch(currentSettings.customCssPath);
+  return customCssStatus();
+}
+
+async function chooseCustomCss() {
+  const current = currentSettings.customCssPath;
+  const result = await dialog.showOpenDialog(settingsWindow || gameWindow, {
+    title: 'Choose a CSS file',
+    defaultPath: current ? path.dirname(current) : app.getPath('documents'),
+    properties: ['openFile'],
+    filters: [{ name: 'CSS', extensions: ['css'] }],
+  });
+  if (result.canceled || !result.filePaths?.[0]) return { chosen: false, customCss: customCssStatus() };
+  const file = sanitizeCustomCssPath(result.filePaths[0]);
+  if (!file) return { chosen: false, error: 'Choose a .css file.', customCss: customCssStatus() };
+  return { chosen: true, customCss: setCustomCssPath(file) };
+}
+
+/* Saves a starter file wherever the player says, then uses it. */
+async function newCustomCss() {
+  const result = await dialog.showSaveDialog(settingsWindow || gameWindow, {
+    title: 'New CSS file',
+    defaultPath: path.join(app.getPath('documents'), 'bunnyhop.css'),
+    filters: [{ name: 'CSS', extensions: ['css'] }],
+  });
+  if (result.canceled || !result.filePath) return { chosen: false, customCss: customCssStatus() };
+  /* The dialog asked before replacing the name it showed, not one with .css added. */
+  const appended = !/\.css$/i.test(result.filePath);
+  const file = sanitizeCustomCssPath(appended ? `${result.filePath}.css` : result.filePath);
+  if (!file) return { chosen: false, error: 'Choose a .css file.', customCss: customCssStatus() };
+  try {
+    writeFileSync(file, CUSTOM_CSS_STARTER, { flag: appended ? 'wx' : 'w' });
+  } catch (error) {
+    if (error?.code !== 'EEXIST') return { chosen: false, error: 'Couldn’t save the file.', customCss: customCssStatus() };
+  }
+  return { chosen: true, customCss: setCustomCssPath(file) };
+}
+
+async function revealCustomCss() {
+  const file = currentSettings.customCssPath;
+  if (!file) return { shown: false };
+  if (existsSync(file)) {
+    shell.showItemInFolder(file);
+    return { shown: true };
+  }
+  const error = await shell.openPath(path.dirname(file));
+  return { shown: error === '', error: error ? 'The folder is gone too.' : undefined };
+}
+
 function installIpc() {
   ipcMain.handle('settings:bootstrap', async (event) => {
     requireSettingsSender(event);
@@ -659,12 +735,15 @@ function installIpc() {
       discord: discordStatus,
       update: updateStatus,
       benchmark: { ready: benchmarkReady, running: benchmarkRunning, results: benchmarks.list() },
+      customCss: customCssStatus(),
     };
   });
   ipcMain.handle('settings:save', async (event, raw) => {
     requireSettingsSender(event);
     const before = currentSettings;
-    currentSettings = withRuntimeOverrides(saveSettings(settingsFile, raw));
+    /* The CSS file is chosen only through the dialogs below, never by a save. */
+    const input = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    currentSettings = withRuntimeOverrides(saveSettings(settingsFile, { ...input, customCssPath: before.customCssPath }));
     if (!currentSettings.capturePersonalBests || !currentSettings.localRunVault) cancelPendingResultCapture();
     gameWindow?.webContents.send('client:settings', publicClientSettings());
     /* The window saves on every change, so Discord reconnects only when its
@@ -700,6 +779,18 @@ function installIpc() {
   });
   ipcMain.on('client:benchmark-result', (event, raw) => {
     try { requireGameSender(event); saveBenchmark(raw); } catch (error) { console.warn('[client] benchmark result refused', error.message); }
+  });
+  ipcMain.handle('settings:custom-css-choose', (event) => { requireSettingsSender(event); return chooseCustomCss(); });
+  ipcMain.handle('settings:custom-css-new', (event) => { requireSettingsSender(event); return newCustomCss(); });
+  ipcMain.handle('settings:custom-css-clear', (event) => { requireSettingsSender(event); return { customCss: setCustomCssPath(null) }; });
+  ipcMain.handle('settings:custom-css-reveal', (event) => { requireSettingsSender(event); return revealCustomCss(); });
+  ipcMain.on('client:custom-css-ready', (event) => {
+    try {
+      requireGameSender(event);
+      customCssReady = true;
+      /* A reload reads the file again, in case a change slipped past the watcher. */
+      if (!customCss.refresh()) sendCustomCss();
+    } catch (error) { console.warn('[client] custom CSS refused', error.message); }
   });
   ipcMain.handle('settings:relaunch', (event) => {
     requireSettingsSender(event);
@@ -747,6 +838,7 @@ app.whenReady().then(async () => {
   if (smoke && smoke !== 'live') installSmokeFixture(protocol);
   installIpc();
   ensureVaults();
+  customCss.watch(currentSettings.customCssPath);
   app.on('certificate-error', (_event, _contents, _url, _error, _certificate, callback) => callback(false));
   if (app.isPackaged && !smoke) {
     app.setAsDefaultProtocolClient('bunnyhop');
@@ -789,6 +881,7 @@ app.on('open-url', (event, url) => {
 });
 app.on('before-quit', () => {
   localStatusWriter.stop();
+  customCss.close();
   cancelPendingResultCapture();
   stopDiscord();
 });

@@ -4,6 +4,10 @@ const number = v => typeof v === 'number' && Number.isFinite(v) ? v : null;
 const room = v => v && typeof v === 'object' ? {id:text(v.id,40),lobby:v.lobby===true,players:number(v.players),max:number(v.max)} : null;
 let benchmarkListener = null;
 ipcRenderer.on('client:benchmark', (_event, value) => { if (benchmarkListener) try { benchmarkListener({seconds:number(value?.seconds) ?? 30}); } catch {} });
+/* Custom CSS: the text of the player's own .css file and its base name, or null. Never a path. */
+let customCssListener = null;
+const customCss = v => v && typeof v === 'object' && typeof v.css === 'string' && v.css.length <= 262144 ? {name:text(v.name),css:v.css} : null;
+ipcRenderer.on('client:custom-css', (_event, value) => { if (customCssListener) try { customCssListener(customCss(value)); } catch {} });
 contextBridge.exposeInMainWorld('bunnyhopClient', Object.freeze({
   version: 1,
   getCachedContent: hash => ipcRenderer.invoke('client:cache-get', hash),
@@ -21,6 +25,13 @@ contextBridge.exposeInMainWorld('bunnyhopClient', Object.freeze({
     ipcRenderer.send('client:benchmark-ready');
   },
   benchmarkResult: v => { try { ipcRenderer.send('client:benchmark-result', v); } catch {} },
+  /* Called with the current file at once (main answers custom-css-ready) and again on every save. */
+  onCustomCss: listener => {
+    if (typeof listener !== 'function') return () => {};
+    customCssListener = listener;
+    ipcRenderer.send('client:custom-css-ready');
+    return () => { if (customCssListener === listener) customCssListener = null; };
+  },
   onSettings: listener => {
     if (typeof listener !== 'function') return () => {};
     const wrapped = (_event,value) => listener(value);
