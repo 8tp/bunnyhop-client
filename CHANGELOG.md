@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
 
-- **Custom skies folder.** F10 → Client → Open skies folder opens the client's `Skies` folder. Drop `.hdr` or `.bhsky.json` skies there to use them in Settings → Graphics → Sky with a supporting game update. Changes reload automatically; the newest 24 skies are loaded, with limits of 16 MiB per HDR and 45 MiB per BHSKY file.
+- **Custom skies folder.** F10 → Client → Open skies folder opens the client's `Skies` folder. Drop skies there (`.hdr`, `.bhsky.json`, or a 2:1 PNG, JPEG or WebP panorama) and they show up in Settings → Graphics → Sky as soon as they're saved. Changes reload automatically; the newest 24 skies are loaded, up to 16 MiB per HDR, 32 MiB per picture and 45 MiB per BHSKY file. Needs the game's v0.0.29 update.
+- **Hotkeys off the input path.** F9, F10 and F11 are now caught in the game page itself instead of by the main process reading every key press, so key presses reach the game without a round trip through the main process.
+- Electron 45.1.0.
 
 ## 0.2.2
 
