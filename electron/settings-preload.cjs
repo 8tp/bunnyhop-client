@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('bunnyhopSettings', Object.freeze({
   newCustomCss: () => ipcRenderer.invoke('settings:custom-css-new'),
   clearCustomCss: () => ipcRenderer.invoke('settings:custom-css-clear'),
   revealCustomCss: () => ipcRenderer.invoke('settings:custom-css-reveal'),
+  openSkiesFolder: () => ipcRenderer.invoke('settings:open-skies-folder'),
   onCustomCssStatus: (listener) => {
     if (typeof listener !== 'function') return () => {};
     const wrapped = (_event, value) => listener(value);

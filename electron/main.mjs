@@ -55,6 +55,7 @@ import { applyPriority } from './process-priority.mjs';
 import { checkForUpdate, isReleasePage } from './update-check.mjs';
 import { installSmokeFixture, runSmoke } from './smoke.mjs';
 import { CUSTOM_CSS_STARTER, CustomCssWatcher, customCssName, sanitizeCustomCssPath } from './custom-css.mjs';
+import { CustomSkiesWatcher, ensureSkiesFolder } from './custom-skies.mjs';
 
 /* Only release builds (npm run release:build) carry bunnyhopReleaseBuild in
    their packaged package.json. They check for new versions and never run
@@ -80,10 +81,15 @@ const reportVault = path.join(vaultRoot, 'reports');
 const runVault = new RunVault(vaultRoot);
 const benchmarks = new BenchmarkStore(path.join(vaultRoot, 'benchmarks.json'));
 const contentCache = new ContentCache(path.join(app.getPath('userData'), 'content-cache'));
+const skiesFolder = path.join(app.getPath('userData'), 'Skies');
 /* The web app's page ground (index.html theme-color, --ground in its
    tokens), so a window never flashes a different black before the first
    paint. The settings sheet is drawn on the same ground. */
 const GAME_BACKGROUND = '#101318';
+/* Only this client-owned error page may use hotkeys without a game origin.
+   Its preload still runs when the network is down; other game IPC stays refused. */
+const GAME_LOAD_ERROR_HTML = '<!doctype html><meta charset=utf-8><meta http-equiv=Content-Security-Policy content="default-src \'none\'; style-src \'unsafe-inline\'"><style>body{background:#101318;color:#e6e9ef;font:18px system-ui;padding:12vh 12vw}a{color:#ffb43a}</style><h1>Bunnyhop could not load.</h1><p>Check your connection, then try again.</p><p><a href="https://bunnyhop.lol/">Retry Bunnyhop</a></p><p>F10 opens client settings and diagnostics.</p>';
+const GAME_LOAD_ERROR_URL = 'data:text/html;charset=utf-8,' + encodeURIComponent(GAME_LOAD_ERROR_HTML);
 const RESTART_KEYS = Object.freeze([
   'windowMode', 'uncap', 'preferDiscreteGpu', 'gpuBackend', 'pinDeviceScale',
   'processPriority', 'preferredDisplay', 'preferHighestRefresh',
@@ -166,6 +172,16 @@ const customCss = new CustomCssWatcher({
     sendCustomCss();
     settingsWindow?.webContents.send('custom-css:status', customCssStatus());
   },
+});
+let customSkiesReady = false;
+let customSkiesGeneration = 0;
+const customSkies = new CustomSkiesWatcher(skiesFolder, {
+  onChange: skies => {
+    if (customSkiesReady && gameWindow && !gameWindow.isDestroyed() && isGameUrl(gameWindow.webContents.getURL())) {
+      gameWindow.webContents.send('client:custom-skies', null, skies);
+    }
+  },
+  onError: error => console.warn('[client] custom skies unavailable:', error.message),
 });
 const resultCapture = new PersonalBestCapture({
   capture: async () => {
@@ -294,13 +310,12 @@ function createGameWindow() {
   };
   win.on('close',rememberWindow);
   win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); setBenchmark(false, false); customCssReady = false; }
+    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); setBenchmark(false, false); customCssReady = false; customSkiesReady = false; customSkiesGeneration++; }
   });
-  if (smoke) runSmoke({ app, win, mode: smoke, createSettingsWindow });
+  if (smoke) runSmoke({ app, win, mode: smoke, createSettingsWindow, gameLoadErrorUrl: GAME_LOAD_ERROR_URL });
   win.webContents.on('did-fail-load', (_event, code, description, url, mainFrame) => {
     if (!mainFrame || code === -3 || smoke || !isAllowedNavigation(url)) return;
-    const html = '<!doctype html><meta charset=utf-8><meta http-equiv=Content-Security-Policy content="default-src \'none\'; style-src \'unsafe-inline\'"><style>body{background:#101318;color:#e6e9ef;font:18px system-ui;padding:12vh 12vw}a{color:#ffb43a}</style><h1>Bunnyhop could not load.</h1><p>Check your connection, then try again.</p><p><a href="https://bunnyhop.lol/">Retry Bunnyhop</a></p><p>F10 opens client settings and diagnostics.</p>';
-    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)).catch(()=>{});
+    win.loadURL(GAME_LOAD_ERROR_URL).catch(()=>{});
     console.warn('[client] game load failed', code, description);
   });
   win.webContents.on('render-process-gone', () => { cancelPendingResultCapture(); queuePresence({kind:'menu'}); dialog.showMessageBox(win,{type:'error',message:'The game stopped unexpectedly.',buttons:['Reload game','Close'],defaultId:0}).then(({response}) => response===0 ? win.loadURL(gameUrl({client:clientValue})).catch(()=>{}) : win.close()); });
@@ -348,11 +363,27 @@ function createSettingsWindow() {
       spellcheck: false,
     },
   });
+  installAuxiliaryHotkeys(settingsWindow.webContents);
   settingsWindow.on('closed', () => { settingsWindow = null; });
   settingsWindow.loadURL(settingsUrl).catch((error) => {
     console.warn('[client] settings page failed to load', error.message);
   });
   return settingsWindow;
+}
+
+/* Auxiliary windows retain their shortcuts in main. Never install this on the
+   game: even a fast non-F-key return puts main back on its keyboard input path. */
+function installAuxiliaryHotkeys(contents) {
+  contents.on('before-input-event', (event, input) => {
+    if (input.key !== 'F9' && input.key !== 'F10' && input.key !== 'F11') return;
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'F10') createSettingsWindow();
+    if (input.key === 'F9') {
+      if (!gameWindow) return;
+      captureGameWindow().catch((error) => console.warn('[client] capture failed', error.message));
+    }
+    event.preventDefault();
+  });
 }
 
 app.on('web-contents-created', (_event, contents) => {
@@ -378,24 +409,8 @@ app.on('web-contents-created', (_event, contents) => {
     openExternal(url);
     return { action: 'deny' };
   });
+  contents.on('did-create-window', win => installAuxiliaryHotkeys(win.webContents));
   contents.on('will-attach-webview', (event) => event.preventDefault());
-  contents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown') return;
-    if (input.key === 'F10') {
-      createSettingsWindow();
-      event.preventDefault();
-      return;
-    }
-    if (input.key === 'F9' && gameWindow) {
-      captureGameWindow().catch((error) => console.warn('[client] capture failed', error.message));
-      event.preventDefault();
-      return;
-    }
-    if (input.key !== 'F11') return;
-    const win = BrowserWindow.fromWebContents(contents);
-    if (win === gameWindow && startupSettings.windowMode !== 'kiosk') setGameFullscreen(!win.isFullScreen());
-    event.preventDefault();
-  });
 });
 
 function configureDownloads(ses) {
@@ -724,6 +739,13 @@ async function revealCustomCss() {
   return { shown: error === '', error: error ? 'The folder is gone too.' : undefined };
 }
 
+async function openSkiesFolder() {
+  const { root } = await ensureSkiesFolder(skiesFolder);
+  await customSkies.start();
+  const error = await shell.openPath(root);
+  return { opened: error === '', error };
+}
+
 function installIpc() {
   ipcMain.handle('settings:bootstrap', async (event) => {
     requireSettingsSender(event);
@@ -784,6 +806,22 @@ function installIpc() {
   ipcMain.handle('settings:custom-css-new', (event) => { requireSettingsSender(event); return newCustomCss(); });
   ipcMain.handle('settings:custom-css-clear', (event) => { requireSettingsSender(event); return { customCss: setCustomCssPath(null) }; });
   ipcMain.handle('settings:custom-css-reveal', (event) => { requireSettingsSender(event); return revealCustomCss(); });
+  ipcMain.handle('settings:open-skies-folder', event => { requireSettingsSender(event); return openSkiesFolder(); });
+  ipcMain.handle('client:open-skies-folder', event => { requireGameSender(event); return openSkiesFolder(); });
+  ipcMain.on('client:custom-skies-ready', async (event, subscription) => {
+    try {
+      requireGameSender(event);
+      if (!Number.isSafeInteger(subscription) || subscription < 1) return;
+      const frame = event.senderFrame;
+      const generation = customSkiesGeneration;
+      await customSkies.start();
+      // A navigation may have completed while asynchronous reads were pending.
+      requireGameSender(event);
+      if (generation !== customSkiesGeneration || frame.detached || frame !== event.sender.mainFrame) return;
+      customSkiesReady = true;
+      event.sender.send('client:custom-skies', subscription, customSkies.value);
+    } catch (error) { console.warn('[client] custom skies refused', error.message); }
+  });
   ipcMain.on('client:custom-css-ready', (event) => {
     try {
       requireGameSender(event);
@@ -800,6 +838,18 @@ function installIpc() {
   });
   ipcMain.handle('client:fullscreen', (event, value) => { requireGameSender(event); if (typeof value !== 'boolean') throw new Error('invalid fullscreen'); setGameFullscreen(value); return gameWindow.isFullScreen(); });
   ipcMain.handle('client:open-settings', (event) => { requireGameSender(event); createSettingsWindow(); });
+  ipcMain.on('client:hotkey', (event, key) => {
+    if (key !== 'F9' && key !== 'F10' && key !== 'F11') return;
+    try {
+      const localErrorPage = gameWindow && !gameWindow.isDestroyed()
+        && event.sender === gameWindow.webContents && event.senderFrame === event.sender.mainFrame
+        && event.senderFrame?.url === GAME_LOAD_ERROR_URL;
+      if (!localErrorPage) requireGameSender(event);
+      if (key === 'F10') createSettingsWindow();
+      if (key === 'F9') captureGameWindow().catch((error) => console.warn('[client] capture failed', error.message));
+      if (key === 'F11' && startupSettings.windowMode !== 'kiosk') setGameFullscreen(!gameWindow.isFullScreen());
+    } catch (error) { console.warn('[client] hotkey refused', error.message); }
+  });
   ipcMain.handle('client:cache-get', (event, hash) => { requireGameSender(event); return contentCache.get(hash); });
   ipcMain.handle('client:cache-put', (event, hash, bytes) => { requireGameSender(event); return contentCache.put(hash, bytes); });
   ipcMain.handle('client:public-settings', (event) => { requireGameSender(event); return publicClientSettings(); });
@@ -882,6 +932,7 @@ app.on('open-url', (event, url) => {
 app.on('before-quit', () => {
   localStatusWriter.stop();
   customCss.close();
+  customSkies.close();
   cancelPendingResultCapture();
   stopDiscord();
 });

@@ -315,6 +315,7 @@ const ACTIONS = {
   'css-new': [() => api.newCustomCss(), null],
   'css-clear': [() => api.clearCustomCss(), null],
   'css-reveal': [() => api.revealCustomCss(), null],
+  'skies-open': [() => api.openSkiesFolder(), null],
 };
 for (const [id, [action, done]] of Object.entries(ACTIONS)) {
   $(`#${id}`).onclick = async () => {

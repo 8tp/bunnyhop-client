@@ -46,6 +46,7 @@ test('sandbox bridge forwards cache bytes and Discord artwork through narrow cha
   const listeners = [];
   let bridge;
   vm.runInNewContext(readFileSync(new URL('../game-preload.cjs', import.meta.url), 'utf8'), {
+    window: { addEventListener() {} },
     require: () => ({ contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } },
       ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve(null); }, send: (...args) => calls.push(args), on: (...args) => listeners.push(args) } }),
   });
