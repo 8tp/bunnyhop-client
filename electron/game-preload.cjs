@@ -1,4 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
+/* Keep gameplay keys entirely in the renderer: a main-process before-input-event
+   listener makes every key wait for main, even when it returns immediately.
+   The trade-off is that these client hotkeys wait too if the renderer hangs.
+   Capture in the isolated world before page listeners, and send only hotkeys. */
+window.addEventListener('keydown', event => {
+  if (event.key !== 'F9' && event.key !== 'F10' && event.key !== 'F11') return;
+  if (!event.isTrusted) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  ipcRenderer.send('client:hotkey', event.key);
+}, true);
+
 const text = (v,n=80) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,n);
 const number = v => typeof v === 'number' && Number.isFinite(v) ? v : null;
 const room = v => v && typeof v === 'object' ? {id:text(v.id,40),lobby:v.lobby===true,players:number(v.players),max:number(v.max)} : null;

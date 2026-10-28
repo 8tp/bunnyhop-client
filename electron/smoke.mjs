@@ -1,5 +1,6 @@
 import { existsSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 
 import { isGameUrl } from './policy.mjs';
 
@@ -30,11 +31,77 @@ async function waitFor(win, expression, what) {
   throw new Error(what);
 }
 
-export function runSmoke({ app, win, mode, createSettingsWindow }) {
+/* Real trusted input crosses the isolated-world listener. Stub only the native
+   screenshot dialog and fullscreen transition, so this stays hidden/headless. */
+async function checkGameHotkeys(win, { refused = false, settingsOnly = false } = {}) {
+  if (win.webContents.listenerCount('before-input-event')) throw new Error('game has a main-process keyboard hook');
+  const keys = [];
+  const received = (_event, key) => keys.push(key);
+  const originalCapture = win.capturePage;
+  const originalDialog = dialog.showSaveDialog;
+  const originalFullscreen = win.setFullScreen;
+  const originalIsFullscreen = win.isFullScreen;
+  const originalIsKiosk = win.isKiosk;
+  let captures = 0;
+  let fullscreen = false;
+  let transitions = 0;
+  let kiosk = false;
+  win.capturePage = async () => { captures++; return {}; };
+  dialog.showSaveDialog = async () => ({ canceled: true });
+  win.setFullScreen = value => { fullscreen = value; transitions++; };
+  win.isFullScreen = () => fullscreen;
+  win.isKiosk = () => kiosk;
+  ipcMain.on('client:hotkey', received);
+  const settingsWindows = () => BrowserWindow.getAllWindows().filter(w => w !== win && w.webContents.getURL().startsWith('bunnyhop-settings:'));
+  const closeSettings = async () => {
+    for (const settings of settingsWindows()) {
+      await new Promise(resolve => { settings.once('closed', resolve); settings.close(); });
+    }
+  };
+  try {
+    await win.webContents.executeJavaScript(`window.__smokeKeys=[]; window.addEventListener('keydown', e => window.__smokeKeys.push(e.key), true); true`);
+    win.webContents.debugger.attach('1.3');
+    const press = async key => {
+      await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key });
+      await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key });
+      // A renderer/main IPC round trip drains the preceding hotkey send.
+      await win.webContents.executeJavaScript('window.bunnyhopClient.getSettings().catch(() => null)');
+    };
+    await press('a');
+    await press('d');
+    if (!settingsOnly) {
+      await press('F9');
+      await press('F11');
+      if (captures !== (refused ? 0 : 1) || transitions !== (refused ? 0 : 1)) throw new Error('screenshot/fullscreen hotkey routing failed');
+      kiosk = true;
+      await press('F11');
+      if (transitions !== (refused ? 0 : 1)) throw new Error('F11 escaped kiosk');
+    }
+    await press('F10');
+    // The settings navigation can still be pending when the hotkey IPC returns.
+    const settings = BrowserWindow.getAllWindows().find(w => w !== win);
+    if (Boolean(settings) !== !refused) throw new Error('F10 sender validation failed');
+    if (settings && settings.webContents.isLoading()) await new Promise(resolve => settings.webContents.once('did-finish-load', resolve));
+    if (JSON.stringify(await win.webContents.executeJavaScript('window.__smokeKeys')) !== '["a","d"]') throw new Error('gameplay keys blocked or hotkeys leaked to the page');
+    if (JSON.stringify(keys) !== JSON.stringify(settingsOnly ? ['F10'] : ['F9', 'F11', 'F11', 'F10'])) throw new Error('unexpected hotkey IPC');
+    await closeSettings();
+  } finally {
+    if (win.webContents.debugger.isAttached()) win.webContents.debugger.detach();
+    ipcMain.removeListener('client:hotkey', received);
+    win.capturePage = originalCapture;
+    dialog.showSaveDialog = originalDialog;
+    win.setFullScreen = originalFullscreen;
+    win.isFullScreen = originalIsFullscreen;
+    win.isKiosk = originalIsKiosk;
+  }
+}
+
+export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUrl }) {
   const cssFile = smokeCustomCss();
   const deadline = setTimeout(() => { process.stderr.write('electron smoke: timeout\n'); app.exit(1); }, 45000);
   win.webContents.once('dom-ready', async () => {
     try {
+      if (mode !== 'live') await checkGameHotkeys(win);
       const bridge = await win.webContents.executeJavaScript(`(async()=>{
         if (window.bunnyhopClient?.version !== 1) throw new Error('missing game bridge');
         const settings=await window.bunnyhopClient.getSettings();
@@ -70,6 +137,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow }) {
       }
       if (mode !== 'live') {
         await win.loadURL('about:blank');
+        await checkGameHotkeys(win, { refused: true });
         const refused=await win.webContents.executeJavaScript(`window.bunnyhopClient.getSettings().then(()=>false,()=>true)`);
         if (!refused) throw new Error('untrusted origin gained IPC');
         const cacheRefused = await win.webContents.executeJavaScript(`window.bunnyhopClient.getCachedContent('a'.repeat(64)).then(()=>false,()=>true)`);
@@ -79,6 +147,9 @@ export function runSmoke({ app, win, mode, createSettingsWindow }) {
           await new Promise(resolve => setTimeout(resolve, 500));
           if (await win.webContents.executeJavaScript(`window.__smokeCss.length`)) throw new Error('untrusted origin got custom CSS');
         }
+        // The client-owned load-error page still offers F10, but no game IPC.
+        await win.loadURL(gameLoadErrorUrl);
+        await checkGameHotkeys(win, { settingsOnly: true });
         // Back on the game, which registers a benchmark that answers at once (the real one measures 30 s of play).
         await win.loadURL('https://bunnyhop.lol/');
         await win.webContents.executeJavaScript(`window.bunnyhopClient.onBenchmark(r => window.bunnyhopClient.benchmarkResult({map:'bhop_smoke',seconds:r.seconds,frames:900,interval:{avg:3.3,p50:3.2,p99:6.1,max:20},work:{p50:1,p99:2,max:3},hitches:2,graphics:{width:1280,height:720}})); true`);
@@ -107,7 +178,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow }) {
             writeFileSync(process.env.BUNNYHOP_SMOKE_SCREENSHOT,(await settings.capturePage()).toPNG());
           }
           clearTimeout(deadline);
-          process.stdout.write(`electron smoke: trusted game IPC, run archive, settings bootstrap, vault${cssFile ? ', custom CSS' : ''} and benchmark passed\n`);
+          process.stdout.write(`electron smoke: ${mode !== 'live' ? 'isolated hotkeys, kiosk, sender validation, ' : ''}trusted game IPC, run archive, settings bootstrap, vault${cssFile ? ', custom CSS' : ''} and benchmark passed\n`);
           app.quit();
         } catch(error) { process.stderr.write(`electron smoke: ${error.message}\n`); app.exit(1); }
       });
