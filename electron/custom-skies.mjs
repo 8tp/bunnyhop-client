@@ -2,12 +2,13 @@ import * as nodeFs from 'node:fs';
 import path from 'node:path';
 
 export const SKY_LIMIT = 24;
-export const SKY_MAX_BYTES = Object.freeze({ hdr: 16 * 1024 * 1024, bhsky: 45 * 1024 * 1024 });
+export const SKY_MAX_BYTES = Object.freeze({ hdr: 16 * 1024 * 1024, image: 32 * 1024 * 1024, bhsky: 45 * 1024 * 1024 });
 export const SKY_DEBOUNCE_MS = 300;
 export const SKY_ERRORS = Object.freeze({
   notFile: 'Not a regular file',
   unreadable: 'Can’t read the file',
   hdr: 'Not a Radiance HDR file',
+  image: 'Not a PNG, JPEG or WebP picture',
   limit: 'Only the 24 newest skies are loaded',
 });
 
@@ -15,7 +16,15 @@ export function skyKind(name) {
   // Names come from readdir, never from the page. Reject separators anyway.
   if (typeof name !== 'string' || name.startsWith('.') || /[/\\\u0000]/.test(name)) return null;
   if (/\.bhsky\.json$/i.test(name)) return 'bhsky';
+  if (/\.(?:png|jpe?g|webp)$/i.test(name)) return 'image';
   return /\.hdr$/i.test(name) ? 'hdr' : null;
+}
+
+/** PNG, JPEG or WebP by its first bytes (the game decodes and checks it fully). */
+function isPicture(b) {
+  if (b.length >= 8 && b.readUInt32BE(0) === 0x89504e47 && b.readUInt32BE(4) === 0x0d0a1a0a) return true;
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return true;
+  return b.length >= 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP';
 }
 
 export async function ensureSkiesFolder(folder, fs = nodeFs) {
@@ -94,6 +103,7 @@ export class CustomSkiesScanner {
       if (length > max || after.size > max) return fail(tooBig);
       if (length !== after.size || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs) return fail('File changed while reading; save it again');
       if (kind === 'hdr' && !/^#\?(?:RADIANCE|RGBE)(?:\r?\n|$)/.test(buffer.subarray(0, Math.min(length, 12)).toString('latin1'))) return fail(SKY_ERRORS.hdr);
+      if (kind === 'image' && !isPicture(buffer.subarray(0, Math.min(length, 12)))) return fail(SKY_ERRORS.image);
       return { name, kind, size: length, mtime: stat.mtimeMs, bytes: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + length) };
     } catch { return fail(SKY_ERRORS.unreadable); }
     finally { try { await handle?.close(); } catch {} }

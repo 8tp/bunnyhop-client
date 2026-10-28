@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import { CustomSkiesScanner, CustomSkiesWatcher, SKY_ERRORS, SKY_LIMIT, SKY_MAX_BYTES, ensureSkiesFolder, skyKind } from '../custom-skies.mjs';
 
 const hdr = '#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n';
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 async function fixture(t) {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'bunnyhop-skies-test-'));
   t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
@@ -18,6 +19,8 @@ async function fixture(t) {
 test('only sky extensions are accepted; dot-files and traversal names are ignored', () => {
   for (const name of ['sun.hdr', 'sun.HDR']) assert.equal(skyKind(name), 'hdr');
   for (const name of ['sun.bhsky.json', 'sun.BHSKY.JSON']) assert.equal(skyKind(name), 'bhsky');
+  for (const name of ['sky.png', 'sky.JPG', 'sky.jpeg', 'sky.webp']) assert.equal(skyKind(name), 'image');
+  for (const name of ['sky.gif', 'sky.png.exe', '.sky.png']) assert.equal(skyKind(name), null);
   for (const name of ['.sun.hdr', 'sun.json', 'sun.hdr.exe', '../sun.hdr', 'a/sun.hdr', 'a\\sun.hdr', 'a\0.hdr', null]) assert.equal(skyKind(name), null);
 });
 
@@ -41,12 +44,12 @@ test('scanner creates the folder and returns exact ArrayBuffers, names, kinds an
   assert.equal(Buffer.from(skies.find(s => s.name === 'radiance.hdr').bytes).toString(), hdr);
 });
 
-test('size limits are inclusive for both kinds, and invalid HDR magic is an error', async t => {
+test('size limits are inclusive for every kind, and invalid HDR or picture magic is an error', async t => {
   const { folder, write } = await fixture(t);
   const scanner = new CustomSkiesScanner(folder);
   for (const [kind, max] of Object.entries(SKY_MAX_BYTES)) {
-    const name = kind === 'hdr' ? 'limit.hdr' : 'limit.bhsky.json';
-    await write(name, kind === 'hdr' ? hdr : '{}');
+    const name = { hdr: 'limit.hdr', image: 'limit.png', bhsky: 'limit.bhsky.json' }[kind];
+    await write(name, { hdr, image: PNG, bhsky: '{}' }[kind]);
     await fs.promises.truncate(path.join(folder, name), max);
     let sky = (await scanner.scan()).find(s => s.name === name);
     assert.equal(sky.size, max);
@@ -58,6 +61,14 @@ test('size limits are inclusive for both kinds, and invalid HDR magic is an erro
   for (const value of ['', 'not an HDR', '#?RADIANCEX\n', '#?RGBEX\n', Buffer.from([...hdr].map(c => c.charCodeAt(0) | 0x80))]) {
     await write('bad.hdr', value);
     assert.deepEqual((await scanner.scan()).find(s => s.name === 'bad.hdr'), { name: 'bad.hdr', error: SKY_ERRORS.hdr });
+  }
+  for (const value of ['', 'not a picture', 'GIF89a......', hdr]) {
+    await write('bad.png', value);
+    assert.deepEqual((await scanner.scan()).find(s => s.name === 'bad.png'), { name: 'bad.png', error: SKY_ERRORS.image });
+  }
+  for (const [name, value] of [['ok.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16])], ['ok.webp', Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1')]]) {
+    await write(name, value);
+    assert.equal((await scanner.scan()).find(s => s.name === name).kind, 'image');
   }
 });
 
