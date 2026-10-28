@@ -68,6 +68,12 @@ The vault keeps at most 5,000 summaries and 1 GB of screenshots, removing the ol
 
 Run it after each change you want to compare. The last 20 results are kept.
 
+## Custom skies
+
+**F10 → Client → Open skies folder** creates and opens the `Skies` folder inside the client's user data directory. Drop `.hdr` (Radiance HDR) or `.bhsky.json` files there; with a supporting game update, they appear in **Settings → Graphics → Sky**. The game receives the current list when it subscribes, then updates about 300 ms after folder changes.
+
+The newest 24 files by modification time are loaded. HDR files can be at most 16 MiB and BHSKY files at most 45 MiB; unsupported HDR data, oversized files, unreadable files and files beyond the 24-sky limit show an error. Other file extensions, dot-files and symlinks are ignored. Only file names, metadata and bytes reach the game; local paths stay in the client. Unchanged files are cached in memory.
+
 ## Custom CSS
 
 **F10 → Client → Custom CSS** restyles the game's menus and HUD with a `.css` file of your own. **Choose…** picks a file, **New…** saves a starter file and uses it. The game loads the file and reloads it each time you save, so you can keep it open in an editor and watch your changes. **Stop using** turns it off.

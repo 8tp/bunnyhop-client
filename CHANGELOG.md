@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Custom skies folder.** F10 → Client → Open skies folder opens the client's `Skies` folder. Drop `.hdr` or `.bhsky.json` skies there to use them in Settings → Graphics → Sky with a supporting game update. Changes reload automatically; the newest 24 skies are loaded, with limits of 16 MiB per HDR and 45 MiB per BHSKY file.
+
 ## 0.2.2
 
 - **Custom CSS.** F10 → Client → Custom CSS picks a `.css` file on your computer (or saves a starter file with New…). The game restyles itself with it and reloads it every time you save, so you can edit it in VS Code and watch the change. Only the file's text and name reach the game; files over 256 KB are refused. Needs the game's Custom CSS setting.

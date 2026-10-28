@@ -55,6 +55,7 @@ import { applyPriority } from './process-priority.mjs';
 import { checkForUpdate, isReleasePage } from './update-check.mjs';
 import { installSmokeFixture, runSmoke } from './smoke.mjs';
 import { CUSTOM_CSS_STARTER, CustomCssWatcher, customCssName, sanitizeCustomCssPath } from './custom-css.mjs';
+import { CustomSkiesWatcher, ensureSkiesFolder } from './custom-skies.mjs';
 
 /* Only release builds (npm run release:build) carry bunnyhopReleaseBuild in
    their packaged package.json. They check for new versions and never run
@@ -80,6 +81,7 @@ const reportVault = path.join(vaultRoot, 'reports');
 const runVault = new RunVault(vaultRoot);
 const benchmarks = new BenchmarkStore(path.join(vaultRoot, 'benchmarks.json'));
 const contentCache = new ContentCache(path.join(app.getPath('userData'), 'content-cache'));
+const skiesFolder = path.join(app.getPath('userData'), 'Skies');
 /* The web app's page ground (index.html theme-color, --ground in its
    tokens), so a window never flashes a different black before the first
    paint. The settings sheet is drawn on the same ground. */
@@ -170,6 +172,16 @@ const customCss = new CustomCssWatcher({
     sendCustomCss();
     settingsWindow?.webContents.send('custom-css:status', customCssStatus());
   },
+});
+let customSkiesReady = false;
+let customSkiesGeneration = 0;
+const customSkies = new CustomSkiesWatcher(skiesFolder, {
+  onChange: skies => {
+    if (customSkiesReady && gameWindow && !gameWindow.isDestroyed() && isGameUrl(gameWindow.webContents.getURL())) {
+      gameWindow.webContents.send('client:custom-skies', null, skies);
+    }
+  },
+  onError: error => console.warn('[client] custom skies unavailable:', error.message),
 });
 const resultCapture = new PersonalBestCapture({
   capture: async () => {
@@ -298,7 +310,7 @@ function createGameWindow() {
   };
   win.on('close',rememberWindow);
   win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); setBenchmark(false, false); customCssReady = false; }
+    if (isMainFrame && !isInPlace) { cancelPendingResultCapture(); queuePresence({kind:'menu'}); setBenchmark(false, false); customCssReady = false; customSkiesReady = false; customSkiesGeneration++; }
   });
   if (smoke) runSmoke({ app, win, mode: smoke, createSettingsWindow, gameLoadErrorUrl: GAME_LOAD_ERROR_URL });
   win.webContents.on('did-fail-load', (_event, code, description, url, mainFrame) => {
@@ -727,6 +739,13 @@ async function revealCustomCss() {
   return { shown: error === '', error: error ? 'The folder is gone too.' : undefined };
 }
 
+async function openSkiesFolder() {
+  const { root } = await ensureSkiesFolder(skiesFolder);
+  await customSkies.start();
+  const error = await shell.openPath(root);
+  return { opened: error === '', error };
+}
+
 function installIpc() {
   ipcMain.handle('settings:bootstrap', async (event) => {
     requireSettingsSender(event);
@@ -787,6 +806,22 @@ function installIpc() {
   ipcMain.handle('settings:custom-css-new', (event) => { requireSettingsSender(event); return newCustomCss(); });
   ipcMain.handle('settings:custom-css-clear', (event) => { requireSettingsSender(event); return { customCss: setCustomCssPath(null) }; });
   ipcMain.handle('settings:custom-css-reveal', (event) => { requireSettingsSender(event); return revealCustomCss(); });
+  ipcMain.handle('settings:open-skies-folder', event => { requireSettingsSender(event); return openSkiesFolder(); });
+  ipcMain.handle('client:open-skies-folder', event => { requireGameSender(event); return openSkiesFolder(); });
+  ipcMain.on('client:custom-skies-ready', async (event, subscription) => {
+    try {
+      requireGameSender(event);
+      if (!Number.isSafeInteger(subscription) || subscription < 1) return;
+      const frame = event.senderFrame;
+      const generation = customSkiesGeneration;
+      await customSkies.start();
+      // A navigation may have completed while asynchronous reads were pending.
+      requireGameSender(event);
+      if (generation !== customSkiesGeneration || frame.detached || frame !== event.sender.mainFrame) return;
+      customSkiesReady = true;
+      event.sender.send('client:custom-skies', subscription, customSkies.value);
+    } catch (error) { console.warn('[client] custom skies refused', error.message); }
+  });
   ipcMain.on('client:custom-css-ready', (event) => {
     try {
       requireGameSender(event);
@@ -897,6 +932,7 @@ app.on('open-url', (event, url) => {
 app.on('before-quit', () => {
   localStatusWriter.stop();
   customCss.close();
+  customSkies.close();
   cancelPendingResultCapture();
   stopDiscord();
 });

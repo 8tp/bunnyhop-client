@@ -1,6 +1,6 @@
-import { existsSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, promises as fs, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 
 import { isGameUrl } from './policy.mjs';
 
@@ -29,6 +29,53 @@ async function waitFor(win, expression, what) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error(what);
+}
+
+async function checkCustomSkies(app, win) {
+  const folder = path.join(app.getPath('userData'), 'Skies');
+  await fs.mkdir(folder, { recursive: true });
+  await fs.writeFile(path.join(folder, 'smoke.hdr'), '#?RADIANCE\n');
+  await win.webContents.executeJavaScript(`
+    window.__smokeSkies=[];
+    window.__stopSkies=window.bunnyhopClient.onCustomSkies(v=>window.__smokeSkies.push(v));
+    true
+  `);
+  await waitFor(win, 'window.__smokeSkies.length === 1', 'skies initial list missing');
+  await win.webContents.executeJavaScript(`
+    (()=>{
+      const sky=window.__smokeSkies[0][0];
+      if(window.__smokeSkies[0].length!==1 || sky.name!=='smoke.hdr' || sky.kind!=='hdr'
+        || sky.size!==11 || !Number.isFinite(sky.mtime) || !(sky.bytes instanceof ArrayBuffer)
+        || new TextDecoder().decode(sky.bytes)!=='#?RADIANCE\\n'
+        || Object.keys(sky).sort().join(',')!=='bytes,kind,mtime,name,size') throw new Error('skies ArrayBuffer payload wrong');
+      // Mutating the page copy must not corrupt the main-process cache.
+      new Uint8Array(sky.bytes).fill(0);
+      window.__secondSkies=[];
+      window.__stopSecondSkies=window.bunnyhopClient.onCustomSkies(v=>window.__secondSkies.push(v));
+    })()
+  `);
+  await waitFor(win, 'window.__secondSkies.length === 1', 'second skies subscriber missing');
+  await win.webContents.executeJavaScript(`
+    if(window.__smokeSkies.length!==1 || new TextDecoder().decode(window.__secondSkies[0][0].bytes)!=='#?RADIANCE\\n') throw new Error('skies subscription/cache isolation failed');
+    window.__stopSecondSkies(); true
+  `);
+  await fs.writeFile(path.join(folder, '.sky.tmp'), '{}');
+  await fs.rename(path.join(folder, '.sky.tmp'), path.join(folder, 'smoke.bhsky.json'));
+  await waitFor(win, `window.__smokeSkies.at(-1)?.some(s=>s.kind==='bhsky' && s.bytes instanceof ArrayBuffer && s.size===2)`, 'skies rename update missing');
+  await fs.unlink(path.join(folder, 'smoke.hdr'));
+  await waitFor(win, `window.__smokeSkies.at(-1)?.length===1 && window.__smokeSkies.at(-1)[0].kind==='bhsky'`, 'skies deletion missing');
+  await win.webContents.executeJavaScript('window.__stopSkies(); window.__skyCount=window.__smokeSkies.length; true');
+  await fs.unlink(path.join(folder, 'smoke.bhsky.json'));
+  await win.webContents.executeJavaScript(`window.__emptySkies=null; window.bunnyhopClient.onCustomSkies(v=>window.__emptySkies=v); true`);
+  await waitFor(win, 'window.__emptySkies?.length===0', 'empty skies list missing');
+  if (!await win.webContents.executeJavaScript('window.__smokeSkies.length===window.__skyCount && window.__secondSkies.length===1')) throw new Error('skies unsubscribe failed');
+  const originalOpenPath = shell.openPath;
+  let opened = null;
+  try {
+    shell.openPath = async file => { opened = file; return ''; };
+    const result = await win.webContents.executeJavaScript('window.bunnyhopClient.openSkiesFolder()');
+    if (opened !== await fs.realpath(folder) || result?.opened !== true) throw new Error('skies folder reveal failed');
+  } finally { shell.openPath = originalOpenPath; }
 }
 
 /* Real trusted input crosses the isolated-world listener. Stub only the native
@@ -122,6 +169,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUr
         return true;
       })()`);
       if (!bridge) throw new Error('game bridge failed');
+      await checkCustomSkies(app, win);
       if (cssFile) {
         await waitFor(win, `window.__smokeCss.length > 0`, 'custom CSS not sent on registration');
         const first = await win.webContents.executeJavaScript(`window.__smokeCss[0]`);
@@ -142,6 +190,10 @@ export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUr
         if (!refused) throw new Error('untrusted origin gained IPC');
         const cacheRefused = await win.webContents.executeJavaScript(`window.bunnyhopClient.getCachedContent('a'.repeat(64)).then(()=>false,()=>true)`);
         if (!cacheRefused) throw new Error('untrusted origin gained cache access');
+        if (!await win.webContents.executeJavaScript(`window.bunnyhopClient.openSkiesFolder().then(()=>false,()=>true)`)) throw new Error('untrusted origin opened skies folder');
+        await win.webContents.executeJavaScript(`window.__untrustedSkies=[]; window.bunnyhopClient.onCustomSkies(v=>window.__untrustedSkies.push(v)); true`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (await win.webContents.executeJavaScript('window.__untrustedSkies.length')) throw new Error('untrusted origin got skies');
         if (cssFile) {
           await win.webContents.executeJavaScript(`window.__smokeCss=[]; window.bunnyhopClient.onCustomCss(v => window.__smokeCss.push(v)); true`);
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -165,6 +217,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUr
             const runs=await window.bunnyhopSettings.listVault();
             if(!runs.some(r=>r.mapId==='bhop_smoke' && r.timeMs===1234 && r.verified===false)) throw new Error('archive not visible');
             if(!document.querySelector('#settings-form')) throw new Error('settings form absent');
+            if(!document.querySelector('#skies-open') || typeof window.bunnyhopSettings.openSkiesFolder!=='function') throw new Error('skies folder action absent');
             if(${mode !== 'live'}) {
               if(!b.benchmark?.ready) throw new Error('benchmark not offered');
               const results=new Promise((resolve,reject)=>{window.bunnyhopSettings.onBenchmarkResults(resolve);setTimeout(()=>reject(new Error('benchmark result missing')),5000);});
@@ -178,7 +231,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUr
             writeFileSync(process.env.BUNNYHOP_SMOKE_SCREENSHOT,(await settings.capturePage()).toPNG());
           }
           clearTimeout(deadline);
-          process.stdout.write(`electron smoke: ${mode !== 'live' ? 'isolated hotkeys, kiosk, sender validation, ' : ''}trusted game IPC, run archive, settings bootstrap, vault${cssFile ? ', custom CSS' : ''} and benchmark passed\n`);
+          process.stdout.write(`electron smoke: ${mode !== 'live' ? 'isolated hotkeys, kiosk, sender validation, ' : ''}trusted game IPC, run archive, settings bootstrap, vault${cssFile ? ', custom CSS' : ''}, custom skies (ArrayBuffers, updates, unsubscribe, folder reveal) and benchmark passed\n`);
           app.quit();
         } catch(error) { process.stderr.write(`electron smoke: ${error.message}\n`); app.exit(1); }
       });

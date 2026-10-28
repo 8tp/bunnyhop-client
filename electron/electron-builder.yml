@@ -33,6 +33,7 @@ files:
   - electron/settings.mjs
   - electron/window-state.mjs
   - electron/custom-css.mjs
+  - electron/custom-skies.mjs
   - package.json
 asar: true
 afterPack: electron/after-pack.cjs

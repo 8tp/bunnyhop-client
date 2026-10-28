@@ -20,8 +20,29 @@ ipcRenderer.on('client:benchmark', (_event, value) => { if (benchmarkListener) t
 let customCssListener = null;
 const customCss = v => v && typeof v === 'object' && typeof v.css === 'string' && v.css.length <= 262144 ? {name:text(v.name),css:v.css} : null;
 ipcRenderer.on('client:custom-css', (_event, value) => { if (customCssListener) try { customCssListener(customCss(value)); } catch {} });
+/* Each subscription gets its own initial snapshot. Pending subscribers ignore
+   broadcasts until that snapshot arrives; unsubscribe also cancels late replies. */
+let nextSkySubscription = 0;
+const skyListeners = new Map();
+ipcRenderer.on('client:custom-skies', (_event, subscription, skies) => {
+  if (!Array.isArray(skies)) return;
+  const targets = subscription === null ? [...skyListeners.values()].filter(v => v.ready) : [skyListeners.get(subscription)];
+  for (const target of targets) {
+    if (!target) continue;
+    target.ready = true;
+    try { target.listener(skies); } catch {}
+  }
+});
 contextBridge.exposeInMainWorld('bunnyhopClient', Object.freeze({
   version: 1,
+  onCustomSkies: listener => {
+    if (typeof listener !== 'function') return () => {};
+    const subscription = ++nextSkySubscription;
+    skyListeners.set(subscription, { listener, ready: false });
+    ipcRenderer.send('client:custom-skies-ready', subscription);
+    return () => { skyListeners.delete(subscription); };
+  },
+  openSkiesFolder: () => ipcRenderer.invoke('client:open-skies-folder'),
   getCachedContent: hash => ipcRenderer.invoke('client:cache-get', hash),
   cacheContent: (hash, bytes) => ipcRenderer.invoke('client:cache-put', hash, bytes),
   getSettings: () => ipcRenderer.invoke('client:public-settings'),
