@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Electron 45.2.2 (Chromium 156.0.8078.80, Node.js 24.22.2) instead of 45.1.0, for the Chromium, V8, Skia and Dawn security fixes released since. No other changes; it works the same with the game's v0.0.36 update (Infinite, Backwards, freecam, practice in servers).
+
 ## 0.2.3
 
 - **Custom skies folder.** F10 → Client → Open skies folder opens the client's `Skies` folder. Drop skies there (`.hdr`, `.bhsky.json`, or a 2:1 PNG, JPEG or WebP panorama) and they show up in Settings → Graphics → Sky as soon as they're saved. Changes reload automatically; the newest 24 skies are loaded, up to 16 MiB per HDR, 32 MiB per picture and 45 MiB per BHSKY file. Needs the game's v0.0.29 update.
