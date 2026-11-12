@@ -95,3 +95,32 @@ const bounded = (v,max,integer=false) => typeof v === 'number' && Number.isFinit
 export function sanitizeRunSummary(raw={}, {client='',now=new Date()}={}) {
  return {version:1,savedAt:now.toISOString(),mapId:cleanText(raw.mapId,80),mapName:cleanText(raw.mapName,80),style:cleanText(raw.style,32),timeMs:bounded(raw.timeMs,86400000),ticks:bounded(raw.ticks,1000000000,true),tickRate:bounded(raw.tickRate,1000),personalBest:raw.personalBest===true,verified:raw.verified===true,mode:['solo','multiplayer','practice','replay'].includes(raw.mode)?raw.mode:'solo',client:cleanText(client,32)};
 }
+
+/* Web permissions. The game page gets what the game itself uses: pointer and
+   keyboard lock, fullscreen, "Copy image" (clipboard-sanitized-write, reading
+   stays denied) and the microphone for push-to-talk voice chat, audio only.
+   The game opens the microphone only while the talk key is held; the OS still
+   asks once (macOS) or follows its privacy switch (Windows). Camera, screen
+   capture, location, notifications and the rest are denied, and so is every
+   other origin. */
+const GAME_PERMISSIONS = new Set(['pointerLock', 'fullscreen', 'keyboardLock', 'clipboard-sanitized-write']);
+
+const originOf = (value) => {
+  try { return new URL(value).origin; } catch { return ''; }
+};
+
+/** A permission request (setPermissionRequestHandler). */
+export function permissionRequestAllowed({ permission, requestingUrl, pageUrl, mediaTypes } = {}) {
+  if (!GAME_ORIGINS.includes(originOf(requestingUrl))) return false;
+  if (permission === 'media') {
+    return isGameUrl(pageUrl) && Array.isArray(mediaTypes) && mediaTypes.length > 0 && mediaTypes.every((type) => type === 'audio');
+  }
+  return GAME_PERMISSIONS.has(permission);
+}
+
+/** A permission check (setPermissionCheckHandler); enumerateDevices shows microphone names only after this says yes. */
+export function permissionCheckAllowed({ permission, requestingOrigin, pageUrl, mediaType } = {}) {
+  if (!GAME_ORIGINS.includes(originOf(requestingOrigin))) return false;
+  if (permission === 'media') return isGameUrl(pageUrl) && mediaType === 'audio';
+  return GAME_PERMISSIONS.has(permission);
+}
