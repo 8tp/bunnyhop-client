@@ -890,7 +890,7 @@ app.whenReady().then(async () => {
   if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
   configureSettingsProtocol();
   configureSession(session.defaultSession);
-  if (smoke && smoke !== 'live') installSmokeFixture(protocol);
+  if (smoke && smoke !== 'live' && smoke !== 'hold') installSmokeFixture(protocol);
   installIpc();
   ensureVaults();
   customCss.watch(currentSettings.customCssPath);

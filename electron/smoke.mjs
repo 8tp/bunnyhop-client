@@ -9,7 +9,7 @@ import { isGameUrl } from './policy.mjs';
    set in a build without the release stamp, so a release never serves the
    fixture page below or runs these scripts. */
 
-/** The fixture answers every game URL, so no smoke run touches the live site unless mode is 'live'. */
+/** The fixture answers every game URL, so no smoke run touches the live site unless mode is 'live' or 'hold'. */
 export function installSmokeFixture(protocol) {
   protocol.handle('https', request => {
     if (!isGameUrl(request.url)) return new Response('Refused',{status:403});
@@ -182,6 +182,8 @@ async function checkGameHotkeys(win, { refused = false, settingsOnly = false } =
 }
 
 export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUrl }) {
+  // 'hold': the live site in hidden windows with the synthetic microphone, no checks, for a harness on the DevTools port.
+  if (mode === 'hold') return;
   const cssFile = smokeCustomCss();
   const deadline = setTimeout(() => { process.stderr.write('electron smoke: timeout\n'); app.exit(1); }, 45000);
   win.webContents.once('dom-ready', async () => {
