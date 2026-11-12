@@ -45,6 +45,9 @@ mac:
   category: public.app-category.games
   identity: null
   notarize: false
+  # macOS shows this when voice chat first opens the microphone.
+  extendInfo:
+    NSMicrophoneUsageDescription: Bunnyhop uses your microphone for voice chat, only while you hold the talk key.
   target:
     - target: dmg
       arch: [arm64, x64]

@@ -23,6 +23,7 @@ It plays the same game, loaded from the live site. Sign in with the same account
 ## What it adds
 
 - **Its own window.** Fullscreen on the display you choose, the faster GPU on laptops, and a profile for each kind of machine.
+- **Voice chat.** Hold X to talk in servers, as in the browser. Only the game gets the microphone, and only sound.
 - **Discord.** Your status shows the map you're on. Friends can press Join on your profile to land on your server.
 - **A run vault.** Every finished run is saved on your computer, with a screenshot of each personal best if you want one.
 - **A benchmark.** Measure 30 seconds of play and compare settings with numbers instead of feel.

@@ -45,6 +45,8 @@ import {
   deepLinkTarget,
   downloadDecision,
   isArchivableRun,
+  permissionCheckAllowed,
+  permissionRequestAllowed,
   sanitizeRunSummary,
   settingsAssetName,
   SETTINGS_ASSET_TYPES,
@@ -139,6 +141,9 @@ for (const raw of buildFlags(startupSettings)) {
   app.commandLine.appendSwitch(match[1], match[2]);
 }
 
+// Smoke runs talk into Chromium's synthetic microphone, never a real one.
+if (smoke) app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+
 applyWindowsAppIdentity(app);
 app.enableSandbox();
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -192,10 +197,6 @@ const resultCapture = new PersonalBestCapture({
   onSaved: () => settingsWindow?.webContents.send('vault:changed'),
   onError: (error) => console.warn('[client] PB screenshot failed', error.message),
 });
-
-function safeOrigin(url) {
-  try { return new URL(url).origin; } catch { return ''; }
-}
 
 function isSettingsUrl(url) {
   return url === settingsUrl;
@@ -437,16 +438,20 @@ function configureDownloads(ses) {
 
 function configureSession(ses) {
   configureDownloads(ses);
-  /* clipboard-sanitized-write lets "Copy image" on a player card put a PNG
-     on the clipboard. Reading the clipboard stays denied. */
-  const allowedPermissions = new Set(['pointerLock', 'fullscreen', 'keyboardLock', 'clipboard-sanitized-write']);
   ses.setPermissionRequestHandler((contents, permission, callback, details) => {
-    const origin = safeOrigin(details?.requestingUrl || details?.securityOrigin || contents.getURL());
-    callback(GAME_ORIGINS.includes(origin) && allowedPermissions.has(permission));
+    callback(permissionRequestAllowed({
+      permission,
+      requestingUrl: details?.requestingUrl || details?.securityOrigin || contents?.getURL(),
+      pageUrl: contents?.getURL(),
+      mediaTypes: details?.mediaTypes,
+    }));
   });
-  ses.setPermissionCheckHandler((_contents, permission, requestingOrigin) => {
-    return GAME_ORIGINS.includes(safeOrigin(requestingOrigin)) && allowedPermissions.has(permission);
-  });
+  ses.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => permissionCheckAllowed({
+    permission,
+    requestingOrigin,
+    pageUrl: contents?.getURL(),
+    mediaType: details?.mediaType,
+  }));
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
     if (settingsAssetName(details.url)) return callback({});
     if (details.url.startsWith('file:')) return callback({ cancel: true });
@@ -885,7 +890,7 @@ app.whenReady().then(async () => {
   if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
   configureSettingsProtocol();
   configureSession(session.defaultSession);
-  if (smoke && smoke !== 'live') installSmokeFixture(protocol);
+  if (smoke && smoke !== 'live' && smoke !== 'hold') installSmokeFixture(protocol);
   installIpc();
   ensureVaults();
   customCss.watch(currentSettings.customCssPath);

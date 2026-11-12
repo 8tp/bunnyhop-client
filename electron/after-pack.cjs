@@ -35,5 +35,7 @@ module.exports = async function afterPack(context) {
   if (context.electronPlatformName === 'darwin') {
     const app = path.join(context.appOutDir, `${product}.app`);
     execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
+    // The outer seal again, with the microphone entitlement (voice chat).
+    execFileSync('codesign', ['--force', '--sign', '-', '--entitlements', path.join(__dirname, 'entitlements.mac.plist'), app], { stdio: 'inherit' });
   }
 };

@@ -9,7 +9,7 @@ import { isGameUrl } from './policy.mjs';
    set in a build without the release stamp, so a release never serves the
    fixture page below or runs these scripts. */
 
-/** The fixture answers every game URL, so no smoke run touches the live site unless mode is 'live'. */
+/** The fixture answers every game URL, so no smoke run touches the live site unless mode is 'live' or 'hold'. */
 export function installSmokeFixture(protocol) {
   protocol.handle('https', request => {
     if (!isGameUrl(request.url)) return new Response('Refused',{status:403});
@@ -78,6 +78,44 @@ async function checkCustomSkies(app, win) {
   } finally { shell.openPath = originalOpenPath; }
 }
 
+/* Voice chat: the game page may open the microphone (Chromium's synthetic one
+   in smoke runs), name it in enumerateDevices and hear it; the camera and
+   screen capture stay refused. */
+async function checkMicrophone(win) {
+  const result = await win.webContents.executeJavaScript(`(async()=>{
+    const step = (name, p) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(name + ' hung')), 4000))]);
+    const state = (await step('mic query', navigator.permissions.query({ name: 'microphone' }))).state;
+    if (state !== 'granted') throw new Error('microphone permission state ' + state);
+    const stream = await step('getUserMedia', navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }));
+    const track = stream.getAudioTracks()[0];
+    if (!track || track.readyState !== 'live') throw new Error('no live microphone track');
+    const inputs = (await step('enumerate', navigator.mediaDevices.enumerateDevices())).filter(d => d.kind === 'audioinput');
+    if (!inputs.length || inputs.some(d => !d.label)) throw new Error('microphones listed without names');
+    const ctx = new AudioContext();
+    await step('resume', ctx.resume());
+    const analyser = ctx.createAnalyser();
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    let peak = 0;
+    for (let i = 0; i < 40 && peak < 0.01; i++) {
+      await new Promise(r => setTimeout(r, 50));
+      analyser.getFloatTimeDomainData(buf);
+      for (const v of buf) peak = Math.max(peak, Math.abs(v));
+    }
+    for (const t of stream.getTracks()) t.stop();
+    await step('close', ctx.close());
+    if (peak < 0.01) throw new Error('microphone captured silence');
+    const refused = async open => { try { const s = await step('refusal', open()); for (const t of s.getTracks()) t.stop(); return false; } catch (e) { return e.name === 'NotAllowedError'; } };
+    if (!await refused(() => navigator.mediaDevices.getUserMedia({ video: true }))) throw new Error('camera allowed');
+    if (!await refused(() => navigator.mediaDevices.getUserMedia({ audio: true, video: true }))) throw new Error('camera allowed with audio');
+    if (!await refused(() => navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }))) throw new Error('screen capture allowed');
+    const camera = (await step('camera query', navigator.permissions.query({ name: 'camera' }))).state;
+    if (camera === 'granted') throw new Error('camera permission granted');
+    return inputs.length;
+  })()`);
+  return result;
+}
+
 /* Real trusted input crosses the isolated-world listener. Stub only the native
    screenshot dialog and fullscreen transition, so this stays hidden/headless. */
 async function checkGameHotkeys(win, { refused = false, settingsOnly = false } = {}) {
@@ -144,6 +182,8 @@ async function checkGameHotkeys(win, { refused = false, settingsOnly = false } =
 }
 
 export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUrl }) {
+  // 'hold': the live site in hidden windows with the synthetic microphone, no checks, for a harness on the DevTools port.
+  if (mode === 'hold') return;
   const cssFile = smokeCustomCss();
   const deadline = setTimeout(() => { process.stderr.write('electron smoke: timeout\n'); app.exit(1); }, 45000);
   win.webContents.once('dom-ready', async () => {
@@ -169,6 +209,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUr
         return true;
       })()`);
       if (!bridge) throw new Error('game bridge failed');
+      await checkMicrophone(win);
       await checkCustomSkies(app, win);
       if (cssFile) {
         await waitFor(win, `window.__smokeCss.length > 0`, 'custom CSS not sent on registration');
@@ -231,7 +272,7 @@ export function runSmoke({ app, win, mode, createSettingsWindow, gameLoadErrorUr
             writeFileSync(process.env.BUNNYHOP_SMOKE_SCREENSHOT,(await settings.capturePage()).toPNG());
           }
           clearTimeout(deadline);
-          process.stdout.write(`electron smoke: ${mode !== 'live' ? 'isolated hotkeys, kiosk, sender validation, ' : ''}trusted game IPC, run archive, settings bootstrap, vault${cssFile ? ', custom CSS' : ''}, custom skies (ArrayBuffers, updates, unsubscribe, folder reveal) and benchmark passed\n`);
+          process.stdout.write(`electron smoke: ${mode !== 'live' ? 'isolated hotkeys, kiosk, sender validation, ' : ''}trusted game IPC, microphone (audio only), run archive, settings bootstrap, vault${cssFile ? ', custom CSS' : ''}, custom skies (ArrayBuffers, updates, unsubscribe, folder reveal) and benchmark passed\n`);
           app.quit();
         } catch(error) { process.stderr.write(`electron smoke: ${error.message}\n`); app.exit(1); }
       });
