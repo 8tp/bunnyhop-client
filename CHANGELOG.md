@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+- **Voice chat.** Hold X to talk in servers and private lobbies, as in the browser. Before, the client could only listen. Only the game page on bunnyhop.lol gets the microphone, and only sound; the camera and screen capture stay blocked. macOS asks once the first time you talk. Pick your microphone in the game's Settings → Audio → Voice chat, where your microphones now show by name.
+- Electron 45.3.1 (Chromium 156.0.8078.96, Node.js 24.22.2) instead of 45.2.2, for the Chromium security fixes released since (Chrome's November 3 and 9 updates), including three critical ones.
+
 ## 0.2.4
 
 - Electron 45.2.2 (Chromium 156.0.8078.80, Node.js 24.22.2) instead of 45.1.0, for the Chromium, V8, Skia and Dawn security fixes released since. No other changes; it works the same with the game's v0.0.36 update (Infinite, Backwards, freecam, practice in servers).

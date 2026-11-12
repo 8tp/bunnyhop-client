@@ -26,5 +26,6 @@ Nothing here may give a player an advantage. Client identity is self-reported, a
 
 ## Done
 
+- **0.2.5:** voice chat (the microphone for the game page, sound only).
 - **0.2.0:** Discord Join, the frame-time benchmark, GPU back-pressure when the whole browser is uncapped, and the redrawn settings window.
 - **0.1.x:** Discord presence, the run vault and PB screenshots, the map cache, profiles, and the signed update notice.

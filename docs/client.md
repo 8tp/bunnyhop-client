@@ -99,6 +99,10 @@ bunnyhop://open?url=https%3A%2F%2Fbunnyhop.lol%2F
 
 Every link is checked first, and `open` only accepts a bunnyhop.lol address. Opening a link takes the game window to it, which ends a run in progress.
 
+## Voice chat
+
+The game's push-to-talk voice chat (hold X in a server) works in the client. Only the game page on bunnyhop.lol may use the microphone, and only for sound: the camera, screen capture, location, notifications and every other site stay blocked. The game opens the microphone only while you hold the talk key. The client doesn't ask a second time; your system does once: macOS asks the first time you talk (System Settings → Privacy & Security → Microphone turns it back on), and Windows follows Settings → Privacy & security → Microphone → Let desktop apps access your microphone. Pick the microphone in the game's Settings → Audio → Voice chat.
+
 ## Downloads
 
 Replays (`.bhr`), images, videos and settings exports the game offers to download open a save dialog, so you choose where every file goes. Executables and other unknown file types are refused.
