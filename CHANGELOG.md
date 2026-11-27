@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- Electron 45.5.0 (Chromium 156.0.8078.109, Node.js 24.22.3) instead of 45.3.1, for the Chromium, V8, ANGLE, Dawn, Skia and FFmpeg security fixes released since.
+- Works the same with the game's v0.0.44 update: snow and rain, frost on players, and checkpoints that stay after you close the client. Nothing else changes.
+
 ## 0.2.5
 
 - **Voice chat.** Hold X to talk in servers and private lobbies, as in the browser. Before, the client could only listen. Only the game page on bunnyhop.lol gets the microphone, and only sound; the camera and screen capture stay blocked. macOS asks once the first time you talk. Pick your microphone in the game's Settings → Audio → Voice chat, where your microphones now show by name.
